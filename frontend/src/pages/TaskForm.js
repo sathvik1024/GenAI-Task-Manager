@@ -7,6 +7,28 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { taskAPI, aiAPI, handleApiError } from '../utils/api';
 
+// Utility function to format date for datetime-local input
+const formatDateForInput = (dateString) => {
+  if (!dateString) return '';
+
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '';
+
+    // Format as YYYY-MM-DDTHH:MM for datetime-local input
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  } catch (error) {
+    console.error('Date formatting error:', error);
+    return '';
+  }
+};
+
 const TaskForm = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -76,12 +98,23 @@ const TaskForm = () => {
 
       const response = await aiAPI.parseTask(aiInput);
       const parsed = response.parsed_task;
-      
+
+      console.log('AI Parse Response:', response);
+      console.log('Parsed Task Data:', parsed);
+
+      // Format the deadline properly
+      const formattedDeadline = formatDateForInput(parsed.deadline);
+
+      console.log('Original deadline:', parsed.deadline);
+      console.log('Formatted deadline:', formattedDeadline);
+      console.log('Priority:', parsed.priority);
+      console.log('Category:', parsed.category);
+
       setFormData({
-        title: parsed.title,
+        title: parsed.title || '',
         description: parsed.description || '',
-        deadline: parsed.deadline ? parsed.deadline.slice(0, 16) : '',
-        priority: parsed.priority,
+        deadline: formattedDeadline,
+        priority: parsed.priority || 'medium',
         category: parsed.category || '',
         subtasks: parsed.subtasks || []
       });

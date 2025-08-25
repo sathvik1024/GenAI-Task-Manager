@@ -14,8 +14,8 @@ import os
 load_dotenv()
 
 # Import database and models
-from database_mongo import init_mongo, check_database_health
-from models_mongo import User, Task
+from database import init_database
+from models import User, Task
 
 # Import route blueprints
 from routes.auth_routes import auth_bp
@@ -24,7 +24,6 @@ from routes.ai_routes import ai_bp
 
 # Import services
 from services.scheduler import task_scheduler
-from services.email_service import EmailService
 
 def create_app():
     """
@@ -35,18 +34,13 @@ def create_app():
     # Configuration
     app.config['SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'dev-secret-key-change-in-production')
     app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'dev-secret-key-change-in-production')
-    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=7)  # Tokens expire in 7 days
-    app.config['JWT_ALGORITHM'] = 'HS256'
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = False  # Tokens don't expire for demo
 
     # Disable automatic slash redirection to avoid CORS issues
     app.url_map.strict_slashes = False
     
     # Initialize extensions
     jwt = JWTManager(app)
-    mail = EmailService.init_mail(app)
-
-    # Store mail instance in app context for routes to access
-    app.mail = mail
     
     # Enable CORS for frontend communication (permissive for development)
     CORS(app, resources={
@@ -58,24 +52,9 @@ def create_app():
         }
     })
     
-    # Initialize MongoDB
-    mongo = init_mongo(app)
-    if mongo is None:
-        print("⚠️ Warning: MongoDB initialization failed. Please check your MongoDB connection.")
-    else:
-        print("✅ MongoDB initialized successfully!")
+    # Initialize database
+    init_database(app)
     
-    # Add request logging for debugging
-    @app.before_request
-    def log_request_info():
-        if request.path.startswith('/api/'):
-            print(f"Request: {request.method} {request.path}")
-            auth_header = request.headers.get('Authorization')
-            if auth_header:
-                print(f"Authorization header: {auth_header[:50]}...")
-            else:
-                print("No Authorization header found")
-
     # Register blueprints
     app.register_blueprint(auth_bp)
     app.register_blueprint(task_bp)
@@ -92,23 +71,15 @@ def create_app():
     
     @jwt.expired_token_loader
     def expired_token_callback(jwt_header, jwt_payload):
-        print("JWT Error: Token has expired")
-        return jsonify({'error': 'Token has expired', 'valid': False}), 401
-
+        return jsonify({'error': 'Token has expired'}), 401
+    
     @jwt.invalid_token_loader
     def invalid_token_callback(error):
-        print(f"JWT Error: Invalid token - {error}")
-        return jsonify({'error': 'Invalid token', 'valid': False}), 401
-
+        return jsonify({'error': 'Invalid token'}), 401
+    
     @jwt.unauthorized_loader
     def missing_token_callback(error):
-        print(f"JWT Error: Missing token - {error}")
-        return jsonify({'error': 'Authorization token required', 'valid': False}), 401
-
-    @jwt.revoked_token_loader
-    def revoked_token_callback(jwt_header, jwt_payload):
-        print("JWT Error: Token has been revoked")
-        return jsonify({'error': 'Token has been revoked', 'valid': False}), 401
+        return jsonify({'error': 'Authorization token required'}), 401
     
     # Health check endpoint
     @app.route('/api/health', methods=['GET'])
@@ -122,6 +93,18 @@ def create_app():
             'scheduler_status': task_scheduler.get_scheduler_status()
         }), 200
     
+    # Handle preflight requests
+    @app.before_request
+    def handle_preflight():
+        if request.method == "OPTIONS":
+            response = make_response()
+            origin = request.headers.get('Origin')
+            if origin in ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002']:
+                response.headers.add("Access-Control-Allow-Origin", origin)
+            response.headers.add('Access-Control-Allow-Headers', "Content-Type,Authorization")
+            response.headers.add('Access-Control-Allow-Methods', "GET,PUT,POST,DELETE,OPTIONS")
+            response.headers.add('Access-Control-Allow-Credentials', "true")
+            return response
 
     # Root endpoint
     @app.route('/', methods=['GET'])

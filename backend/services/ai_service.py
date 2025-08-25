@@ -5,36 +5,111 @@ Handles task parsing, prioritization, and summary generation.
 
 import os
 import json
+import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+
+def enhanced_fallback_parsing(user_input: str) -> Dict:
+    """Enhanced fallback parsing when OpenAI is not available"""
+    text = user_input.lower()
+
+    # Extract title (remove common deadline and priority words)
+    title = user_input
+    for phrase in [' by ', ' deadline ', ' due ', ' priority', ' urgent', ' high priority', ' low priority', ' medium priority']:
+        if phrase in title.lower():
+            title = title[:title.lower().find(phrase)]
+            break
+    title = title.strip()
+
+    # Extract priority
+    priority = 'medium'  # default
+    if any(word in text for word in ['urgent', 'asap', 'immediately']):
+        priority = 'urgent'
+    elif any(word in text for word in ['high priority', 'important', 'critical']):
+        priority = 'high'
+    elif any(word in text for word in ['low priority', 'when possible', 'eventually']):
+        priority = 'low'
+
+    # Extract category
+    category = 'general'  # default
+    categories = {
+        'work': ['work', 'office', 'job', 'meeting', 'report', 'project', 'business'],
+        'personal': ['personal', 'home', 'family', 'friend'],
+        'health': ['doctor', 'appointment', 'medical', 'health', 'exercise', 'gym'],
+        'education': ['study', 'homework', 'assignment', 'exam', 'school', 'university', 'college'],
+        'shopping': ['buy', 'purchase', 'shop', 'store', 'groceries'],
+        'finance': ['bank', 'money', 'payment', 'bill', 'budget', 'finance']
+    }
+
+    for cat, keywords in categories.items():
+        if any(keyword in text for keyword in keywords):
+            category = cat
+            break
+
+    # Extract deadline (basic patterns)
+    deadline = None
+    now = datetime.now()
+
+    # Look for day patterns
+    days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+    for i, day in enumerate(days):
+        if day in text:
+            # Find next occurrence of this day
+            days_ahead = (i - now.weekday()) % 7
+            if days_ahead == 0:  # Today
+                days_ahead = 7  # Next week
+            target_date = now + timedelta(days=days_ahead)
+
+            # Look for time
+            time_match = re.search(r'(\d{1,2})\s*(am|pm)', text)
+            if time_match:
+                hour = int(time_match.group(1))
+                if time_match.group(2) == 'pm' and hour != 12:
+                    hour += 12
+                elif time_match.group(2) == 'am' and hour == 12:
+                    hour = 0
+                deadline = target_date.replace(hour=hour, minute=0, second=0, microsecond=0)
+            else:
+                deadline = target_date.replace(hour=23, minute=59, second=59, microsecond=0)
+            break
+
+    return {
+        'title': title,
+        'description': user_input,
+        'deadline': deadline.isoformat() if deadline else None,
+        'priority': priority,
+        'category': category,
+        'subtasks': [],
+        'ai_generated': False
+    }
 
 def get_openai_client():
     """Get OpenAI client, return None if API key not configured"""
     api_key = os.getenv('OPENAI_API_KEY')
     if not api_key or api_key == 'your_openai_api_key_here':
-        print("OpenAI API key not configured")
+        print("❌ OpenAI API key not configured")
         return None
+
+    print(f"🔑 OpenAI API key found: {api_key[:10]}...")
+
     try:
-        from openai import OpenAI
-        # Initialize with minimal parameters to avoid compatibility issues
-        client = OpenAI(
-            api_key=api_key,
-            timeout=30.0,  # 30 second timeout
-            max_retries=2   # Retry failed requests twice
+        import openai
+
+        # Set the API key
+        openai.api_key = api_key
+
+        # Test with a simple API call
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=5
         )
 
-        # Test the client with a simple request
-        try:
-            # Make a test call to verify the client works
-            response = client.models.list()
-            print("✅ OpenAI client initialized successfully")
-            return client
-        except Exception as test_error:
-            print(f"❌ OpenAI client test failed: {test_error}")
-            return None
+        print("✅ OpenAI client working successfully!")
+        return openai
 
     except Exception as e:
-        print(f"❌ Failed to initialize OpenAI client: {e}")
+        print(f"❌ OpenAI client failed: {e}")
         return None
 
 class AIService:
@@ -56,17 +131,9 @@ class AIService:
         print(f"🤖 AI Parsing request: {user_input}")
         client = get_openai_client()
         if not client:
-            print("⚠️ OpenAI client not available, using fallback parsing")
-            # Fallback to basic parsing when OpenAI is not available
-            return {
-                'title': user_input[:50],
-                'description': user_input,
-                'deadline': None,
-                'priority': 'medium',
-                'category': 'general',
-                'subtasks': [],
-                'ai_generated': False
-            }
+            print("⚠️ OpenAI client not available, using enhanced fallback parsing")
+            # Enhanced fallback parsing when OpenAI is not available
+            return enhanced_fallback_parsing(user_input)
 
         try:
             from datetime import datetime, timedelta
@@ -98,7 +165,9 @@ class AIService:
             """
 
             print("🤖 Sending request to OpenAI...")
-            response = client.chat.completions.create(
+
+            # Use legacy OpenAI client format
+            response = client.ChatCompletion.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {"role": "system", "content": "You are a task management assistant. Always respond with valid JSON."},
@@ -129,18 +198,9 @@ class AIService:
 
         except Exception as e:
             print(f"❌ AI parsing error: {e}")
-            # Fallback to basic parsing
-            fallback_result = {
-                'title': user_input[:50],
-                'description': user_input,
-                'deadline': None,
-                'priority': 'medium',
-                'category': 'general',
-                'subtasks': [],
-                'ai_generated': False
-            }
-            print(f"⚠️ Using fallback parsing: {fallback_result}")
-            return fallback_result
+            print("⚠️ OpenAI API failed, using enhanced fallback parsing")
+            # Use enhanced fallback parsing when API call fails
+            return enhanced_fallback_parsing(user_input)
     
     @staticmethod
     def prioritize_tasks(tasks: List[Dict]) -> List[Dict]:
