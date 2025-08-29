@@ -8,6 +8,7 @@ import json
 import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+from .translation_service import translation_service
 
 def enhanced_fallback_parsing(user_input: str) -> Dict:
     """Enhanced fallback parsing when OpenAI is not available"""
@@ -120,20 +121,44 @@ class AIService:
     @staticmethod
     def parse_natural_language_task(user_input: str) -> Dict:
         """
-        Parse natural language input into structured task data.
+        Parse natural language input into structured task data with multilingual support.
 
         Args:
-            user_input: Natural language task description
+            user_input: Natural language task description in any language
 
         Returns:
             Dictionary with extracted task details
         """
         print(f"🤖 AI Parsing request: {user_input}")
+
+        # Step 1: Detect language and translate if needed
+        translation_result = translation_service.translate_to_english(user_input)
+        original_text = translation_result['original_text']
+        english_text = translation_result['translated_text']
+        source_lang = translation_result['source_language']
+
+        print(f"🌍 Original language: {source_lang}")
+        if translation_result['translation_needed']:
+            print(f"🔄 Translated: '{original_text}' → '{english_text}'")
+
+        # Step 2: Extract multilingual features from original text
+        multilingual_features = translation_service.extract_multilingual_features(original_text, source_lang)
+
+        # Step 3: Try OpenAI parsing with English text
         client = get_openai_client()
         if not client:
-            print("⚠️ OpenAI client not available, using enhanced fallback parsing")
-            # Enhanced fallback parsing when OpenAI is not available
-            return enhanced_fallback_parsing(user_input)
+            print("⚠️ OpenAI client not available, using enhanced multilingual fallback parsing")
+            # Enhanced fallback parsing with multilingual support
+            fallback_result = enhanced_fallback_parsing(english_text)
+            # Override with multilingual features
+            fallback_result.update({
+                'priority': multilingual_features['priority'],
+                'category': multilingual_features['category'],
+                'original_language': source_lang,
+                'original_text': original_text,
+                'description': original_text  # Keep original description
+            })
+            return fallback_result
 
         try:
             from datetime import datetime, timedelta
@@ -146,6 +171,8 @@ class AIService:
             prompt = f"""
             Parse the following natural language task into structured data. Today is {now.strftime('%A, %B %d, %Y')}.
 
+            Note: This text was originally in {source_lang} and has been translated to English for processing.
+
             Extract these fields:
             - title: A clear, concise task title (remove deadline and priority words)
             - description: Detailed description if provided, or expand on the title
@@ -154,7 +181,8 @@ class AIService:
             - category: Categorize based on context. Options: work, personal, health, education, shopping, college, family, finance, travel, etc.
             - subtasks: Generate 2-4 logical subtasks to complete this task
 
-            Task input: "{user_input}"
+            Task input (translated to English): "{english_text}"
+            Original input: "{original_text}"
 
             Examples:
             - "Submit report by Monday 9 PM high priority" → deadline: "2024-MM-DD 21:00:00", priority: "high"
@@ -182,15 +210,18 @@ class AIService:
 
             result = json.loads(ai_response)
 
-            # Validate and set defaults
+            # Validate and set defaults, with multilingual fallback
             parsed_result = {
-                'title': result.get('title', user_input[:50]),
-                'description': result.get('description', user_input),
+                'title': result.get('title', english_text[:50]),
+                'description': original_text,  # Keep original language description
                 'deadline': result.get('deadline'),
-                'priority': result.get('priority', 'medium'),
-                'category': result.get('category', 'general'),
+                'priority': result.get('priority') or multilingual_features['priority'],
+                'category': result.get('category') or multilingual_features['category'],
                 'subtasks': result.get('subtasks', []),
-                'ai_generated': True
+                'ai_generated': True,
+                'original_language': source_lang,
+                'original_text': original_text,
+                'translated_text': english_text if translation_result['translation_needed'] else None
             }
 
             print(f"✅ AI parsing successful: {parsed_result}")
@@ -198,9 +229,19 @@ class AIService:
 
         except Exception as e:
             print(f"❌ AI parsing error: {e}")
-            print("⚠️ OpenAI API failed, using enhanced fallback parsing")
-            # Use enhanced fallback parsing when API call fails
-            return enhanced_fallback_parsing(user_input)
+            print("⚠️ OpenAI API failed, using enhanced multilingual fallback parsing")
+            # Use enhanced fallback parsing with multilingual support when API call fails
+            fallback_result = enhanced_fallback_parsing(english_text)
+            # Override with multilingual features
+            fallback_result.update({
+                'priority': multilingual_features['priority'],
+                'category': multilingual_features['category'],
+                'original_language': source_lang,
+                'original_text': original_text,
+                'description': original_text,  # Keep original description
+                'translated_text': english_text if translation_result['translation_needed'] else None
+            })
+            return fallback_result
     
     @staticmethod
     def prioritize_tasks(tasks: List[Dict]) -> List[Dict]:

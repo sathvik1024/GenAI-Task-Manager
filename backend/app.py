@@ -13,9 +13,9 @@ import os
 # Load environment variables
 load_dotenv()
 
-# Import database and models
-from database import init_database
-from models import User, Task
+ # Import MongoDB database and models
+from database_mongo import init_mongo
+from models_mongo import User
 
 # Import route blueprints
 from routes.auth_routes import auth_bp
@@ -52,8 +52,8 @@ def create_app():
         }
     })
     
-    # Initialize database
-    init_database(app)
+    # Initialize MongoDB
+    init_mongo(app)
     
     # Register blueprints
     app.register_blueprint(auth_bp)
