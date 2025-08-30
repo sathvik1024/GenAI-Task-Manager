@@ -29,7 +29,7 @@ def init_mongo(app):
 
             # Test the connection
             mongo.cx.admin.command('ping')
-            print("✅ MongoDB local connection successful!")
+            print("MongoDB local connection successful!")
 
         else:
             # For Atlas or other cloud providers
@@ -39,7 +39,7 @@ def init_mongo(app):
 
             # Test the connection with timeout
             mongo.cx.admin.command('ping', maxTimeMS=5000)
-            print("✅ MongoDB cloud connection successful!")
+            print("MongoDB cloud connection successful!")
 
         # Create indexes for better performance
         create_indexes()
@@ -47,8 +47,8 @@ def init_mongo(app):
         return mongo
 
     except Exception as e:
-        print(f"❌ MongoDB connection failed: {e}")
-        print("💡 Make sure MongoDB is running (check MongoDB Compass)")
+        print(f"MongoDB connection failed: {e}")
+        print("Make sure MongoDB is running (check MongoDB Compass)")
         return None
 
 def create_indexes():
@@ -65,9 +65,9 @@ def create_indexes():
         mongo.db.tasks.create_index("deadline")
         mongo.db.tasks.create_index("created_at")
         
-        print("✅ Database indexes created successfully!")
+        print("Database indexes created successfully!")
     except Exception as e:
-        print(f"⚠️ Warning: Could not create indexes: {e}")
+        print(f"Warning: Could not create indexes: {e}")
 
 def get_mongo():
     """Get the MongoDB instance."""

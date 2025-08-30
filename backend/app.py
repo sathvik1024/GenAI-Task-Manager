@@ -9,6 +9,7 @@ from flask_jwt_extended import JWTManager
 from dotenv import load_dotenv
 from datetime import timedelta
 import os
+from flask_mail import Mail, Message
 
 # Load environment variables
 load_dotenv()
@@ -126,7 +127,12 @@ def create_app():
     return app
 
 # Create app instance
+
 app = create_app()
+
+# Start the reminder scheduler
+from services.reminder_service import start_scheduler
+start_scheduler(app)
 
 if __name__ == '__main__':
     print("🚀 Starting GenAI Task Manager Backend...")

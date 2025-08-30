@@ -112,9 +112,16 @@ def create_task():
         # Save task to MongoDB
         task.save()
 
+        # Schedule reminder notification 30 minutes before deadline
+        from services.reminder_service import schedule_task_reminder
+        user = User.find_by_id(user_id)
+        task_dict = task.to_dict()
+        if user and user.email:
+            task_dict['user_email'] = user.email
+            schedule_task_reminder(task_dict, current_app)
+
         # Send email notification
         try:
-            user = User.find_by_id(user_id)
             if user and user.email:
                 EmailService.send_task_created_notification(
                     current_app.mail,

@@ -120,8 +120,8 @@ const Dashboard = () => {
                 Your Task Dashboard
               </h2>
               <p className="text-gray-600 max-w-2xl mx-auto">
-                Manage your tasks efficiently with AI-powered insights. 
-                Get intelligent task parsing, prioritization, and daily summaries.
+                {/* Manage your tasks efficiently with AI-powered insights.  */}
+                {/* Get intelligent task parsing, prioritization, and daily summaries. */}
               </p>
             </div>
 
@@ -209,17 +209,7 @@ const Dashboard = () => {
       </main>
 
       {/* Footer */}
-      <footer className="bg-white border-t border-gray-200 mt-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="text-center text-sm text-gray-500">
-            <p>GenAI Task Manager - Powered by AI for smarter task management</p>
-            <p className="mt-1">
-              Built with React, Flask, and OpenAI • 
-              <span className="ml-1">Made with ❤️ for productivity</span>
-            </p>
-          </div>
-        </div>
-      </footer>
+      
     </div>
   );
 };

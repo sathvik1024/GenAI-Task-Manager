@@ -27,17 +27,17 @@ def test_mongodb_connection():
             mongo = init_mongo(app)
             
             if mongo is None:
-                print("❌ MongoDB initialization failed")
+                print("MongoDB initialization failed")
                 return False
             
             # Check health
             healthy, message = check_database_health()
-            print(f"📊 Database health: {message}")
+            print(f"Database health: {message}")
             
             return healthy
             
     except Exception as e:
-        print(f"❌ MongoDB connection test failed: {e}")
+        print(f"MongoDB connection test failed: {e}")
         return False
 
 def test_models():
@@ -55,29 +55,29 @@ def test_models():
             mongo = init_mongo(app)
             
             if mongo is None:
-                print("❌ Cannot test models - MongoDB not available")
+                print("Cannot test models - MongoDB not available")
                 return False
             
             # Test User model
-            print("🧪 Testing User model...")
+            print("Testing User model...")
             test_user = User(
                 username="test_user_mongo",
                 email="test@mongodb.com",
                 password="testpass123"
             )
             test_user.save()
-            print(f"✅ User created with ID: {test_user.id}")
+            print(f"User created with ID: {test_user.id}")
             
             # Find user
             found_user = User.find_by_username("test_user_mongo")
             if found_user:
-                print(f"✅ User found: {found_user.username}")
+                print(f"User found: {found_user.username}")
             else:
-                print("❌ User not found")
+                print("User not found")
                 return False
             
             # Test Task model
-            print("🧪 Testing Task model...")
+            print("Testing Task model...")
             test_task = Task(
                 title="Test MongoDB Task",
                 description="Testing MongoDB integration",
@@ -86,41 +86,41 @@ def test_models():
                 user_id=test_user.id
             )
             test_task.save()
-            print(f"✅ Task created with ID: {test_task.id}")
+            print(f"Task created with ID: {test_task.id}")
             
             # Find tasks
             user_tasks = Task.find_by_user_id(test_user.id)
-            print(f"✅ Found {len(user_tasks)} tasks for user")
+            print(f"Found {len(user_tasks)} tasks for user")
             
             # Get stats
             stats = Task.get_user_stats(test_user.id)
-            print(f"✅ User stats: {stats}")
+            print(f"User stats: {stats}")
             
             return True
             
     except Exception as e:
-        print(f"❌ Model test failed: {e}")
+        print(f"Model test failed: {e}")
         return False
 
 def main():
     """Run all tests."""
-    print("🚀 Testing MongoDB Integration...")
+    print("Testing MongoDB Integration...")
     print("=" * 50)
     
     # Test connection
-    print("1️⃣ Testing MongoDB connection...")
+    print("Testing MongoDB connection...")
     if not test_mongodb_connection():
-        print("❌ MongoDB connection failed. Please ensure MongoDB is running.")
+        print("MongoDB connection failed. Please ensure MongoDB is running.")
         return
     
-    print("\n2️⃣ Testing MongoDB models...")
+    print("\Testing MongoDB models...")
     if not test_models():
-        print("❌ Model tests failed.")
+        print("Model tests failed.")
         return
     
     print("\n" + "=" * 50)
-    print("🎉 All MongoDB tests passed!")
-    print("✅ Your application is ready to use MongoDB!")
+    print("All MongoDB tests passed!")
+    print("Your application is ready to use MongoDB!")
 
 if __name__ == "__main__":
     main()
