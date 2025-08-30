@@ -36,6 +36,13 @@ def create_app():
     app.config['SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'dev-secret-key-change-in-production')
     app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'dev-secret-key-change-in-production')
     app.config['JWT_ACCESS_TOKEN_EXPIRES'] = False  # Tokens don't expire for demo
+    app.config['MAIL_USERNAME'] = 'chandanjpay@gmail.com'
+    app.config['MAIL_PASSWORD'] = 'mrwf bxci vjuz sftu'
+    app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+    app.config['MAIL_PORT'] = 587
+    app.config['MAIL_USE_TLS'] = True
+    app.config['MAIL_USE_SSL'] = False
+    app.config['MAIL_DEFAULT_SENDER'] = 'chandanjpay@gmail.com'
 
     # Disable automatic slash redirection to avoid CORS issues
     app.url_map.strict_slashes = False
@@ -145,6 +152,6 @@ if __name__ == '__main__':
     app.run(
         host='0.0.0.0',
         port=5000,
-        debug=True,
+        debug=False,
         threaded=True
     )

@@ -17,16 +17,9 @@ task_bp = Blueprint('tasks', __name__, url_prefix='/api/tasks')
 def get_tasks():
     """
     Get all tasks for the authenticated user with optional filtering.
-    
-    Query parameters:
-    - status: filter by task status (pending, in_progress, completed)
-    - priority: filter by priority (low, medium, high, urgent)
-    - category: filter by category
-    - search: search in title and description
     """
     try:
         user_id = int(get_jwt_identity())  # Convert string back to int
-        print(f"GET /api/tasks - User ID: {user_id}")
 
         # Get filters from request
         filters = {}
@@ -50,10 +43,6 @@ def get_tasks():
         # Get tasks using MongoDB model
         tasks = Task.find_by_user_id(user_id, filters)
 
-        print(f"Returning {len(tasks)} tasks to frontend")
-        for task in tasks:
-            print(f"  - Task {task.id}: {task.title}")
-
         return jsonify({
             'tasks': [task.to_dict() for task in tasks],
             'count': len(tasks)
@@ -67,33 +56,20 @@ def get_tasks():
 def create_task():
     """
     Create a new task for the authenticated user.
-    
-    Expected JSON:
-    {
-        "title": "string",
-        "description": "string",
-        "deadline": "YYYY-MM-DD HH:MM:SS" (optional),
-        "priority": "low|medium|high|urgent",
-        "category": "string",
-        "subtasks": ["string", ...] (optional)
-    }
     """
     try:
-        user_id = int(get_jwt_identity())  # Convert string back to int
+        user_id = int(get_jwt_identity())
         data = request.get_json()
-        
         if not data or 'title' not in data:
             return jsonify({'error': 'Title is required'}), 400
-        
-        # Parse deadline if provided
+
         deadline = None
         if data.get('deadline'):
             try:
                 deadline = datetime.fromisoformat(data['deadline'].replace('Z', '+00:00'))
             except ValueError:
                 return jsonify({'error': 'Invalid deadline format'}), 400
-        
-        # Create new task
+
         task = Task(
             title=data['title'].strip(),
             description=data.get('description', '').strip(),
@@ -104,39 +80,25 @@ def create_task():
             user_id=user_id,
             ai_generated=data.get('ai_generated', False)
         )
-        
-        # Set subtasks if provided
+
         if data.get('subtasks'):
             task.set_subtasks(data['subtasks'])
 
-        # Save task to MongoDB
         task.save()
 
-        # Schedule reminder notification 30 minutes before deadline
-        from services.reminder_service import schedule_task_reminder
+        from services.reminder_service import schedule_task_reminder, mail
         user = User.find_by_id(user_id)
         task_dict = task.to_dict()
         if user and user.email:
             task_dict['user_email'] = user.email
             schedule_task_reminder(task_dict, current_app)
-
-        # Send email notification
-        try:
-            if user and user.email:
-                EmailService.send_task_created_notification(
-                    current_app.mail,
-                    user.email,
-                    task.to_dict()
-                )
-        except Exception as email_error:
-            print(f"Failed to send email notification: {email_error}")
-            # Don't fail the task creation if email fails
+            EmailService.send_task_created_notification(mail, user.email, task_dict)
 
         return jsonify({
             'message': 'Task created successfully',
             'task': task.to_dict()
         }), 201
-        
+
     except Exception as e:
         return jsonify({'error': f'Failed to create task: {str(e)}'}), 500
 
@@ -288,12 +250,13 @@ def test_email():
     """
     try:
         user_id = int(get_jwt_identity())
-        user = User.query.get(user_id)
+        user = User.find_by_id(user_id)  # Use MongoDB model
 
         if not user or not user.email:
             return jsonify({'error': 'User email not found'}), 400
 
-        success, message = EmailService.send_test_email(current_app.mail, user.email)
+        from services.reminder_service import mail
+        success, message = EmailService.send_test_email(mail, user.email)
 
         if success:
             return jsonify({

@@ -9,6 +9,7 @@ from models_mongo import Task, User
 from services.ai_service import AIService
 from services.email_service import EmailService
 from datetime import datetime
+from services.reminder_service import mail
 
 # Create AI routes blueprint
 ai_bp = Blueprint('ai', __name__, url_prefix='/api/ai')
@@ -102,8 +103,10 @@ def create_task_from_text():
         try:
             user = User.find_by_id(user_id)
             if user and user.email:
+                  # Add this import at the top of your file if not present
+
                 EmailService.send_task_created_notification(
-                    current_app.mail,
+                    mail,
                     user.email,
                     task.to_dict()
                 )

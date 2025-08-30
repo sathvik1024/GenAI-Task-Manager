@@ -6,8 +6,7 @@ Handles automated reminders for upcoming task deadlines.
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from datetime import datetime, timedelta
-from models import Task, User
-from database import db
+from models_mongo import Task, User
 import atexit
 
 class TaskScheduler:
