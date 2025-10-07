@@ -9,7 +9,7 @@ from pymongo import MongoClient
 from datetime import datetime
 import logging
 
-# Global PyMongo instance
+# create a global variable
 mongo = None
 
 def init_mongo(app):
@@ -20,10 +20,9 @@ def init_mongo(app):
     mongo_uri = os.getenv('MONGODB_URI', 'mongodb://localhost:27017/genai_task_manager')
     app.config['MONGO_URI'] = mongo_uri
 
-    print(f"🔗 Connecting to MongoDB: {mongo_uri}")
+    print(f"Connecting to MongoDB: {mongo_uri}")
 
     try:
-        # For local MongoDB (Compass), use simple connection
         if 'localhost' in mongo_uri:
             mongo = PyMongo(app)
 
@@ -41,7 +40,6 @@ def init_mongo(app):
             mongo.cx.admin.command('ping', maxTimeMS=5000)
             print("MongoDB cloud connection successful!")
 
-        # Create indexes for better performance
         create_indexes()
 
         return mongo
@@ -94,7 +92,7 @@ class MongoDBManager:
     
     @staticmethod
     def find_document(collection_name, query):
-        """Find a single document in a collection."""
+        """Find a single document in a collection.to find one documnet that matches our query"""
         collection = MongoDBManager.get_collection(collection_name)
         return collection.find_one(query)
     
@@ -134,7 +132,7 @@ class MongoDBManager:
     
     @staticmethod
     def aggregate(collection_name, pipeline):
-        """Perform aggregation on a collection."""
+        """Perform aggregation on a collection.gets the total tasks for user id."""
         collection = MongoDBManager.get_collection(collection_name)
         return list(collection.aggregate(pipeline))
 
@@ -145,7 +143,6 @@ def check_database_health():
         if mongo is None:
             return False, "MongoDB not initialized"
         
-        # Ping the database
         mongo.cx.admin.command('ping')
         return True, "MongoDB connection healthy"
     except Exception as e:

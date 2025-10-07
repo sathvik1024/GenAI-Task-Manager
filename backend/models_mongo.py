@@ -84,7 +84,7 @@ class User:
     @staticmethod
     def find_by_id(user_id):
         """Find user by ID."""
-        # Try both integer ID and ObjectId
+        
         query = {'$or': [{'id': int(user_id)}, {'_id': ObjectId(user_id) if ObjectId.is_valid(str(user_id)) else None}]}
         user_data = MongoDBManager.find_document('users', query)
         if user_data:
@@ -92,7 +92,7 @@ class User:
         return None
 
 class Task:
-    """Task model for MongoDB."""
+    """Task model for MongoDB.Represents one task belonging to a user."""
     
     def __init__(self, title=None, description=None, deadline=None, priority='medium', 
                  category='general', status='pending', user_id=None, ai_generated=False, **kwargs):

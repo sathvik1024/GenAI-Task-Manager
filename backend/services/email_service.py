@@ -60,7 +60,7 @@ class EmailService:
             <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
                 <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
                     <h2 style="color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">
-                        🎯 New Task Created
+                         New Task Created
                     </h2>
                     
                     <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
@@ -119,7 +119,6 @@ class EmailService:
                     <div style="text-align: center; margin: 30px 0;">
                         <p style="color: #6b7280; font-size: 14px;">
                             This notification was sent from your GenAI Task Manager.<br>
-                            Stay organized and productive! 🚀
                         </p>
                     </div>
                 </div>
@@ -206,7 +205,7 @@ This notification was sent from your GenAI Task Manager.
             msg = Message(
                 subject="GenAI Task Manager - Test Email",
                 recipients=[user_email],
-                body="This is a test email from your GenAI Task Manager. Email notifications are working correctly! 🎉"
+                body="This is a test email from your GenAI Task Manager. Email notifications are working correctly!"
             )
             mail.send(msg)
             return True, "Test email sent successfully"

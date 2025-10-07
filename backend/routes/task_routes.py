@@ -109,7 +109,7 @@ def get_task(task_id):
     Get a specific task by ID (only if owned by authenticated user).
     """
     try:
-        user_id = int(get_jwt_identity())  # Convert string back to int
+        user_id = int(get_jwt_identity()) 
         task = Task.find_by_id(task_id)
 
         if not task or task.user_id != user_id:
@@ -137,7 +137,7 @@ def update_task(task_id):
         if not data:
             return jsonify({'error': 'No data provided'}), 400
         
-        # Update fields if provided
+        # Update
         if 'title' in data:
             task.title = data['title'].strip()
         
@@ -167,7 +167,7 @@ def update_task(task_id):
         
         task.updated_at = datetime.utcnow()
 
-        # Save updated task to MongoDB
+        # Save to MongoDB
         task.save()
 
         return jsonify({
@@ -191,7 +191,7 @@ def delete_task(task_id):
         if not task or task.user_id != user_id:
             return jsonify({'error': 'Task not found'}), 404
 
-        # Delete task from MongoDB
+        # Delete from MongoDB
         task.delete()
 
         return jsonify({'message': 'Task deleted successfully'}), 200
@@ -208,7 +208,7 @@ def get_task_stats():
     try:
         user_id = int(get_jwt_identity())  # Convert string back to int
 
-        # Get user statistics using MongoDB model
+        # user statistics using MongoDB model
         stats = Task.get_user_stats(user_id)
 
         # Get all user tasks for additional calculations
@@ -250,7 +250,7 @@ def test_email():
     """
     try:
         user_id = int(get_jwt_identity())
-        user = User.find_by_id(user_id)  # Use MongoDB model
+        user = User.find_by_id(user_id)  # Using MongoDB model
 
         if not user or not user.email:
             return jsonify({'error': 'User email not found'}), 400

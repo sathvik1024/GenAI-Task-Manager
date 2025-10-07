@@ -3,7 +3,7 @@
  * Includes AI-powered task parsing and manual form input.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { taskAPI, aiAPI, handleApiError } from '../utils/api';
 
@@ -51,22 +51,17 @@ const TaskForm = () => {
   const [showAiForm, setShowAiForm] = useState(!isEditing);
   const [subtaskInput, setSubtaskInput] = useState('');
 
-  useEffect(() => {
-    if (isEditing) {
-      fetchTask();
-    }
-  }, [id, isEditing]);
-
-  const fetchTask = async () => {
+  // ✅ FIX: wrap fetchTask in useCallback
+  const fetchTask = useCallback(async () => {
     try {
       setLoading(true);
       const response = await taskAPI.getTask(id);
       const task = response.task;
-      
+
       setFormData({
         title: task.title,
         description: task.description || '',
-        deadline: task.deadline ? task.deadline.slice(0, 16) : '', // Format for datetime-local input
+        deadline: task.deadline ? task.deadline.slice(0, 16) : '',
         priority: task.priority,
         category: task.category || '',
         subtasks: task.subtasks || []
@@ -76,7 +71,13 @@ const TaskForm = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    if (isEditing) {
+      fetchTask();
+    }
+  }, [isEditing, fetchTask]); // ✅ FIX: dependency included
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -99,16 +100,7 @@ const TaskForm = () => {
       const response = await aiAPI.parseTask(aiInput);
       const parsed = response.parsed_task;
 
-      console.log('AI Parse Response:', response);
-      console.log('Parsed Task Data:', parsed);
-
-      // Format the deadline properly
       const formattedDeadline = formatDateForInput(parsed.deadline);
-
-      console.log('Original deadline:', parsed.deadline);
-      console.log('Formatted deadline:', formattedDeadline);
-      console.log('Priority:', parsed.priority);
-      console.log('Category:', parsed.category);
 
       setFormData({
         title: parsed.title || '',
@@ -118,7 +110,7 @@ const TaskForm = () => {
         category: parsed.category || '',
         subtasks: parsed.subtasks || []
       });
-      
+
       setShowAiForm(false);
       setSuccess('Task parsed successfully! Review and submit below.');
     } catch (err) {
@@ -138,9 +130,10 @@ const TaskForm = () => {
       setAiLoading(true);
       setError('');
 
-      const response = await aiAPI.createFromText(aiInput);
+      // ✅ FIX: removed unused "response"
+      await aiAPI.createFromText(aiInput);
+
       setSuccess('Task created successfully!');
-      
       setTimeout(() => {
         navigate('/dashboard');
       }, 1500);
@@ -170,7 +163,7 @@ const TaskForm = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!formData.title.trim()) {
       setError('Title is required');
       return;
@@ -179,7 +172,7 @@ const TaskForm = () => {
     try {
       setLoading(true);
       setError('');
-      
+
       const taskData = {
         ...formData,
         deadline: formData.deadline || null
@@ -192,7 +185,7 @@ const TaskForm = () => {
         await taskAPI.createTask(taskData);
         setSuccess('Task created successfully!');
       }
-      
+
       setTimeout(() => {
         navigate('/dashboard');
       }, 1500);
@@ -227,10 +220,9 @@ const TaskForm = () => {
             {isEditing ? 'Edit Task' : 'Create New Task'}
           </h1>
           <p className="text-gray-600 mt-2">
-            {isEditing 
+            {isEditing
               ? 'Update your task details below'
-              : 'Create a task manually or let AI parse it from natural language'
-            }
+              : 'Create a task manually or let AI parse it from natural language'}
           </p>
         </div>
 
@@ -251,9 +243,7 @@ const TaskForm = () => {
         {!isEditing && showAiForm && (
           <div className="card mb-6">
             <div className="card-header">
-              <h3 className="text-lg font-semibold text-gray-900">
-                🤖 AI Task Parser
-              </h3>
+              <h3 className="text-lg font-semibold text-gray-900">🤖 AI Task Parser</h3>
               <p className="text-sm text-gray-600 mt-1">
                 Describe your task in natural language and let AI extract the details
               </p>
@@ -272,7 +262,7 @@ const TaskForm = () => {
                     onChange={(e) => setAiInput(e.target.value)}
                   />
                 </div>
-                
+
                 <div className="flex space-x-3">
                   <button
                     onClick={handleAiParse}
@@ -288,7 +278,7 @@ const TaskForm = () => {
                       '🔍 Parse & Review'
                     )}
                   </button>
-                  
+
                   <button
                     onClick={handleCreateFromAi}
                     disabled={aiLoading}
@@ -303,7 +293,7 @@ const TaskForm = () => {
                       '⚡ Create Directly'
                     )}
                   </button>
-                  
+
                   <button
                     onClick={() => setShowAiForm(false)}
                     className="btn-secondary"
@@ -321,9 +311,7 @@ const TaskForm = () => {
           <div className="card">
             <div className="card-header">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Task Details
-                </h3>
+                <h3 className="text-lg font-semibold text-gray-900">Task Details</h3>
                 {!isEditing && (
                   <button
                     onClick={() => setShowAiForm(true)}
@@ -334,7 +322,7 @@ const TaskForm = () => {
                 )}
               </div>
             </div>
-            
+
             <div className="card-content">
               <form onSubmit={handleSubmit} className="space-y-6">
                 {/* Title */}
@@ -382,7 +370,7 @@ const TaskForm = () => {
                       onChange={handleInputChange}
                     />
                   </div>
-                  
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Priority
@@ -421,8 +409,7 @@ const TaskForm = () => {
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Subtasks
                   </label>
-                  
-                  {/* Add Subtask */}
+
                   <div className="flex space-x-2 mb-3">
                     <input
                       type="text"
@@ -440,12 +427,14 @@ const TaskForm = () => {
                       Add
                     </button>
                   </div>
-                  
-                  {/* Subtask List */}
+
                   {formData.subtasks.length > 0 && (
                     <div className="space-y-2">
                       {formData.subtasks.map((subtask, index) => (
-                        <div key={index} className="flex items-center space-x-2 p-2 bg-gray-50 rounded-md">
+                        <div
+                          key={index}
+                          className="flex items-center space-x-2 p-2 bg-gray-50 rounded-md"
+                        >
                           <span className="flex-1 text-sm">{subtask}</span>
                           <button
                             type="button"
@@ -476,7 +465,7 @@ const TaskForm = () => {
                       isEditing ? 'Update Task' : 'Create Task'
                     )}
                   </button>
-                  
+
                   <button
                     type="button"
                     onClick={() => navigate('/dashboard')}

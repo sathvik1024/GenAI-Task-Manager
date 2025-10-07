@@ -16,7 +16,6 @@ def signup():
     """
     Register a new user account.
     
-    Expected JSON:
     {
         "username": "string",
         "email": "string", 
@@ -26,7 +25,6 @@ def signup():
     try:
         data = request.get_json()
         
-        # Validate required fields
         if not data or not all(k in data for k in ('username', 'email', 'password')):
             return jsonify({'error': 'Missing required fields'}), 400
         
@@ -44,7 +42,7 @@ def signup():
         if '@' not in email:
             return jsonify({'error': 'Invalid email format'}), 400
         
-        # Check if user already exists
+        # if user already exists
         if User.find_by_username(username):
             return jsonify({'error': 'Username already exists'}), 409
 
@@ -55,9 +53,9 @@ def signup():
         user = User(username=username, email=email, password=password)
         user.save()
         
-        # Generate access token
+        # Generate access token  ==> string to jwt
         access_token = create_access_token(
-            identity=str(user.id),  # Convert to string for JWT
+            identity=str(user.id),  
             expires_delta=timedelta(days=7)
         )
         

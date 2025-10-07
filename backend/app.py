@@ -142,10 +142,10 @@ from services.reminder_service import start_scheduler
 start_scheduler(app)
 
 if __name__ == '__main__':
-    print("🚀 Starting GenAI Task Manager Backend...")
-    print("📊 Dashboard will be available at: http://localhost:3000")
-    print("🔗 API endpoints available at: http://localhost:5000/api")
-    print("💡 Make sure to set your OPENAI_API_KEY in .env file")
+    print("Starting GenAI Task Manager Backend...")
+    print("Dashboard will be available at: http://localhost:3000")
+    print("API endpoints available at: http://localhost:5000/api")
+    print("Make sure to set your OPENAI_API_KEY in .env file")
     print("=" * 50)
     
     # Run the application

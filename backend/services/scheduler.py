@@ -33,17 +33,22 @@ class TaskScheduler:
     def check_upcoming_deadlines(self):
         """
         Check for tasks with deadlines in the next 24 hours.
-        In a real app, this would send notifications/emails.
         """
         try:
             now = datetime.utcnow()
             tomorrow = now + timedelta(days=1)
             
-            # Find tasks due within 24 hours
-            upcoming_tasks = Task.query.filter(
-                Task.deadline.between(now, tomorrow),
-                Task.status != 'completed'
-            ).all()
+            # ✅ Get ALL tasks using our new Task.find_all()
+            all_tasks = Task.find_all()
+            
+            # Filter tasks due in the next 24 hours and not completed
+            upcoming_tasks = [
+                task for task in all_tasks
+                if task.deadline 
+                and isinstance(task.deadline, datetime)
+                and now <= task.deadline <= tomorrow
+                and task.status != 'completed'
+            ]
             
             for task in upcoming_tasks:
                 self.send_reminder(task)
@@ -56,22 +61,16 @@ class TaskScheduler:
         Send reminder for a specific task.
         In production, this would send email/push notifications.
         """
-        user = User.query.get(task.user_id)
-        print(f"REMINDER: Task '{task.title}' is due soon for user {user.username}")
-        
-        # In a real application, you would:
-        # - Send email notification
-        # - Send push notification
-        # - Log to notification system
-        # - Update task with reminder_sent flag
+        try:
+            user = User.find_by_id(task.user_id)
+            if user:
+                print(f"🔔 REMINDER: Task '{task.title}' is due soon for user {user.username} ({user.email})")
+        except Exception as e:
+            print(f"Error sending reminder: {e}")
     
     def add_custom_reminder(self, task_id, reminder_time):
         """
         Add a custom reminder for a specific task.
-        
-        Args:
-            task_id: ID of the task
-            reminder_time: datetime when to send reminder
         """
         try:
             self.scheduler.add_job(
@@ -90,7 +89,7 @@ class TaskScheduler:
         Send reminder for a specific task by ID.
         """
         try:
-            task = Task.query.get(task_id)
+            task = Task.find_by_id(task_id)
             if task and task.status != 'completed':
                 self.send_reminder(task)
         except Exception as e:

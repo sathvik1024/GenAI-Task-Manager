@@ -20,7 +20,6 @@ def parse_natural_language_task():
     """
     Parse natural language input into structured task data using AI.
     
-    Expected JSON:
     {
         "input": "string - natural language task description"
     }
@@ -96,14 +95,12 @@ def create_task_from_text():
         if parsed_data.get('subtasks'):
             task.set_subtasks(parsed_data['subtasks'])
         
-        # Save task to MongoDB
-        task.save()
+        task.save() #to mongodb
 
         # Send email notification
         try:
             user = User.find_by_id(user_id)
             if user and user.email:
-                  # Add this import at the top of your file if not present
 
                 EmailService.send_task_created_notification(
                     mail,
@@ -112,7 +109,6 @@ def create_task_from_text():
                 )
         except Exception as email_error:
             print(f"Failed to send email notification: {email_error}")
-            # Don't fail the task creation if email fails
 
         return jsonify({
             'message': 'Task created successfully from AI parsing',
@@ -128,11 +124,7 @@ def create_task_from_text():
 def prioritize_user_tasks():
     """
     Use AI to intelligently prioritize user's tasks.
-    
-    Optional JSON:
-    {
-        "task_ids": [1, 2, 3] - specific task IDs to prioritize (optional)
-    }
+
     """
     try:
         user_id = int(get_jwt_identity())  # Convert string back to int
@@ -190,7 +182,7 @@ def generate_task_summary():
         # Generate summary using AI
         summary = AIService.generate_summary(task_dicts, period)
         
-        # Get some basic stats
+        # stats like total, completed and pendinggg
         total_tasks = len(tasks)
         completed_tasks = len([t for t in tasks if t.status == 'completed'])
         pending_tasks = len([t for t in tasks if t.status in ['pending', 'in_progress']])
@@ -214,12 +206,7 @@ def generate_task_summary():
 def suggest_subtasks():
     """
     Generate AI suggestions for subtasks based on a task title/description.
-    
-    Expected JSON:
-    {
-        "title": "string",
-        "description": "string" (optional)
-    }
+
     """
     try:
         data = request.get_json()

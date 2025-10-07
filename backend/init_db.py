@@ -20,8 +20,8 @@ def create_database():
     # Initialize database
     init_database(app)
     
-    print("✅ Database created successfully!")
-    print(f"📁 Database file location: {os.path.abspath('tasks.db')}")
+    print(" Database created successfully!")
+    print(f" Database file location: {os.path.abspath('tasks.db')}")
 
 if __name__ == "__main__":
     create_database()

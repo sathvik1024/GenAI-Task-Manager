@@ -7,7 +7,7 @@ import os
 import re
 from typing import Dict, Optional, Tuple
 from langdetect import detect, DetectorFactory
-from googletrans import Translator
+from deep_translator import GoogleTranslator
 import nltk
 from datetime import datetime, timedelta
 
@@ -16,10 +16,8 @@ DetectorFactory.seed = 0
 
 class TranslationService:
     def __init__(self):
-        self.translator = Translator()
         self._download_nltk_data()
         
-        # Language mappings for better detection
         self.language_names = {
             'en': 'English',
             'es': 'Spanish', 
@@ -43,7 +41,6 @@ class TranslationService:
             'pa': 'Punjabi'
         }
         
-        # Priority keywords in different languages
         self.priority_keywords = {
             'urgent': {
                 'en': ['urgent', 'asap', 'immediately', 'critical', 'emergency'],
@@ -83,7 +80,7 @@ class TranslationService:
             }
         }
         
-        # Category keywords in different languages
+        # Category
         self.category_keywords = {
             'work': {
                 'en': ['work', 'office', 'job', 'meeting', 'report', 'project', 'business'],
@@ -148,7 +145,6 @@ class TranslationService:
         }
 
     def _download_nltk_data(self):
-        """Download required NLTK data"""
         try:
             nltk.data.find('tokenizers/punkt')
         except LookupError:
@@ -168,10 +164,10 @@ class TranslationService:
             detected_lang = detect(text)
             confidence = 0.9  # langdetect doesn't provide confidence, so we estimate
             
-            print(f"🌍 Detected language: {detected_lang} ({self.language_names.get(detected_lang, 'Unknown')})")
+            print(f" Detected language: {detected_lang} ({self.language_names.get(detected_lang, 'Unknown')})")
             return detected_lang, confidence
         except Exception as e:
-            print(f"❌ Language detection failed: {e}")
+            print(f" Language detection failed: {e}")
             return 'en', 0.5  # Default to English
 
     def translate_to_english(self, text: str, source_lang: str = None) -> Dict:
@@ -193,12 +189,10 @@ class TranslationService:
                     'translation_needed': False
                 }
             
-            # Translate to English
-            print(f"🔄 Translating from {self.language_names.get(source_lang, source_lang)} to English...")
-            result = self.translator.translate(text, src=source_lang, dest='en')
-            
-            translated_text = result.text
-            print(f"✅ Translation: '{text}' → '{translated_text}'")
+            # Translate to English using deep-translator
+            print(f" Translating from {self.language_names.get(source_lang, source_lang)} to English...")
+            translated_text = GoogleTranslator(source=source_lang, target='en').translate(text)
+            print(f" Translation: '{text}' → '{translated_text}'")
             
             return {
                 'original_text': text,
@@ -208,7 +202,7 @@ class TranslationService:
             }
             
         except Exception as e:
-            print(f"❌ Translation failed: {e}")
+            print(f" Translation failed: {e}")
             # Return original text if translation fails
             return {
                 'original_text': text,

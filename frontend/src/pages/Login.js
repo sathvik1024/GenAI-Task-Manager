@@ -246,10 +246,6 @@ const Login = () => {
             </form>
           </div>
         </div>
-
-        <div className="text-center text-xs text-gray-500">
-          <p>🤖 AI-powered task management with natural language processing</p>
-        </div>
       </div>
     </div>
   );

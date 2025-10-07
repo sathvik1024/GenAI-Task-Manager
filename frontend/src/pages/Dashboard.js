@@ -15,7 +15,7 @@ const Dashboard = () => {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [activeTab, setActiveTab] = useState('overview');
 
-  // Refresh when returning to dashboard (e.g., after creating a task)
+  // Refresh 
   useEffect(() => {
     console.log('Dashboard: Component mounted or location changed');
     setRefreshTrigger(prev => prev + 1);
@@ -60,7 +60,7 @@ const Dashboard = () => {
                 className="btn-secondary text-sm"
                 title="Refresh tasks"
               >
-                🔄 Refresh
+                 Refresh
               </button>
 
               <a
@@ -142,7 +142,7 @@ const Dashboard = () => {
                     <div className="text-center">
                       <div className="text-2xl mb-2 group-hover:scale-110 transition-transform">📝</div>
                       <h4 className="font-medium text-gray-900 mb-1">Create Task</h4>
-                      <p className="text-sm text-gray-600">Add a new task manually or with AI</p>
+                      <p className="text-sm text-gray-600">Add a new task </p>
                     </div>
                   </a>
                   
@@ -161,7 +161,6 @@ const Dashboard = () => {
                     <div className="text-center">
                       <div className="text-2xl mb-2">🤖</div>
                       <h4 className="font-medium text-gray-900 mb-1">AI Features</h4>
-                      <p className="text-sm text-gray-600">Smart parsing, prioritization & summaries</p>
                     </div>
                   </div>
                 </div>
