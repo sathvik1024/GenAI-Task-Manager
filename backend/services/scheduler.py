@@ -1,125 +1,118 @@
+# services/scheduler.py
 """
-Task reminder scheduler using APScheduler.
-Handles automated reminders for upcoming task deadlines.
+Task reminder scheduler helper.
+Handles automated reminders for upcoming task deadlines by delegating
+actual scheduling and sending to services.reminder_service.
+
+Why this design?
+- We keep a SINGLE BackgroundScheduler in the app (started in reminder_service.start_scheduler(app)).
+- This file only scans tasks and asks reminder_service to (re)schedule jobs.
+- Prevents duplicate schedulers and undefined calls to EmailService.
 """
 
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.interval import IntervalTrigger
 from datetime import datetime, timedelta
+from flask import current_app
+
 from models_mongo import Task, User
-import atexit
+
+# Reuse the single scheduler and helper functions from reminder_service
+from services.reminder_service import (
+    schedule_task_reminder_from_model,  # schedules a reminder for a Task+User
+    remove_task_reminder,               # removes a reminder job by task_id
+)
 
 class TaskScheduler:
     """
-    Background scheduler for task reminders and notifications.
+    Lightweight wrapper that:
+      - scans for upcoming deadlines and (re)schedules reminders
+      - exposes a simple status summary
+
+    NOTE: This class does NOT create or start another BackgroundScheduler.
+    The only scheduler is started in services.reminder_service.start_scheduler(app).
     """
-    
+
     def __init__(self):
-        self.scheduler = BackgroundScheduler()
-        self.scheduler.start()
-        
-        # Schedule reminder checks every hour
-        self.scheduler.add_job(
-            func=self.check_upcoming_deadlines,
-            trigger=IntervalTrigger(hours=1),
-            id='deadline_checker',
-            name='Check upcoming task deadlines',
-            replace_existing=True
-        )
-        
-        # Ensure scheduler shuts down when app exits
-        atexit.register(lambda: self.scheduler.shutdown())
-    
+        # No local BackgroundScheduler here — rely on reminder_service’s scheduler
+        pass
+
+    # ------------------------------------------------------------------
+    # 🔍 SCAN & (RE)SCHEDULE UPCOMING DEADLINES
+    # ------------------------------------------------------------------
     def check_upcoming_deadlines(self):
         """
-        Check for tasks with deadlines in the next 24 hours.
+        Finds tasks due within the next 24 hours (not completed) and ensures
+        a reminder is scheduled 30 minutes before their deadline.
+        Safe to run periodically (e.g., hourly via a cron or manual trigger).
         """
         try:
             now = datetime.utcnow()
-            tomorrow = now + timedelta(days=1)
-            
-            # ✅ Get ALL tasks using our new Task.find_all()
-            all_tasks = Task.find_all()
-            
-            # Filter tasks due in the next 24 hours and not completed
-            upcoming_tasks = [
-                task for task in all_tasks
-                if task.deadline 
-                and isinstance(task.deadline, datetime)
-                and now <= task.deadline <= tomorrow
-                and task.status != 'completed'
+            next_24h = now + timedelta(hours=24)
+
+            all_tasks = Task.find_all() if hasattr(Task, "find_all") else []
+            upcoming = [
+                t for t in all_tasks
+                if t.deadline
+                and isinstance(t.deadline, datetime)
+                and now < t.deadline <= next_24h
+                and t.status != "completed"
             ]
-            
-            for task in upcoming_tasks:
-                self.send_reminder(task)
-                
+
+            print(f"[Scheduler] Found {len(upcoming)} tasks due within 24h.")
+
+            for task in upcoming:
+                user = User.find_by_id(task.user_id)
+                if not user:
+                    continue
+                # (Re-)schedule using the shared scheduler in reminder_service
+                schedule_task_reminder_from_model(current_app, task, user)
+
         except Exception as e:
-            print(f"Scheduler error: {e}")
-    
-    def send_reminder(self, task):
-        """
-        Send reminder for a specific task.
-        In production, this would send email/push notifications.
-        """
-        try:
-            user = User.find_by_id(task.user_id)
-            if user:
-                print(f"🔔 REMINDER: Task '{task.title}' is due soon for user {user.username} ({user.email})")
-        except Exception as e:
-            print(f"Error sending reminder: {e}")
-    
-    def add_custom_reminder(self, task_id, reminder_time):
-        """
-        Add a custom reminder for a specific task.
-        """
-        try:
-            self.scheduler.add_job(
-                func=self.send_task_reminder,
-                trigger='date',
-                run_date=reminder_time,
-                args=[task_id],
-                id=f'task_reminder_{task_id}',
-                replace_existing=True
-            )
-        except Exception as e:
-            print(f"Error adding custom reminder: {e}")
-    
-    def send_task_reminder(self, task_id):
-        """
-        Send reminder for a specific task by ID.
-        """
-        try:
-            task = Task.find_by_id(task_id)
-            if task and task.status != 'completed':
-                self.send_reminder(task)
-        except Exception as e:
-            print(f"Error sending task reminder: {e}")
-    
+            print(f"[Scheduler] Error while scanning deadlines: {e}")
+
+    # ------------------------------------------------------------------
+    # 🧹 REMOVE REMINDERS FOR A TASK
+    # ------------------------------------------------------------------
     def remove_task_reminders(self, task_id):
-        """
-        Remove all reminders for a specific task.
-        """
+        """Remove the scheduled reminder for this task (if any)."""
         try:
-            self.scheduler.remove_job(f'task_reminder_{task_id}')
-        except:
-            pass  # Job might not exist
-    
+            remove_task_reminder(task_id)
+            print(f"[Scheduler] Removed reminder for task {task_id}")
+        except Exception:
+            # Job may not exist; ignore
+            pass
+
+    # ------------------------------------------------------------------
+    # 📊 STATUS SUMMARY
+    # ------------------------------------------------------------------
     def get_scheduler_status(self):
         """
-        Get current scheduler status and job count.
+        Returns a lightweight status summary derived from tasks & deadlines.
+        We don’t expose the internal scheduler instance here.
         """
-        return {
-            'running': self.scheduler.running,
-            'jobs_count': len(self.scheduler.get_jobs()),
-            'jobs': [
-                {
-                    'id': job.id,
-                    'name': job.name,
-                    'next_run': job.next_run_time.isoformat() if job.next_run_time else None
-                }
-                for job in self.scheduler.get_jobs()
-            ]
-        }
+        try:
+            upcoming_count = 0
+            now = datetime.utcnow()
+            next_24h = now + timedelta(hours=24)
+            all_tasks = Task.find_all() if hasattr(Task, "find_all") else []
+            for t in all_tasks:
+                if (
+                    t.deadline and isinstance(t.deadline, datetime)
+                    and now < t.deadline <= next_24h
+                    and t.status != "completed"
+                ):
+                    upcoming_count += 1
 
-# Global scheduler instance
+            return {
+                "running": True,                      # the real scheduler lives in reminder_service
+                "jobs_count_hint": upcoming_count,    # hint based on tasks due soon
+                "note": "Jobs are managed by services.reminder_service",
+            }
+        except Exception as e:
+            return {
+                "running": False,
+                "jobs_count_hint": 0,
+                "error": str(e),
+            }
+
+# Global instance (as expected by your app)
 task_scheduler = TaskScheduler()

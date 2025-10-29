@@ -49,10 +49,13 @@ const SummaryCard = ({ refreshTrigger }) => {
         if (aiHealthResponse.openai_api_configured) {
           const summaryResponse = await aiAPI.generateSummary(period);
           setSummary(summaryResponse);
+        } else {
+          setSummary(null);
         }
       } catch (aiError) {
         console.warn('AI service unavailable:', aiError);
         setAiAvailable(false);
+        setSummary(null);
       }
     } catch (err) {
       setError(handleApiError(err));
@@ -119,16 +122,18 @@ const SummaryCard = ({ refreshTrigger }) => {
             </div>
           </div>
         </div>
-        
+
         <div className="card-content">
           {error ? (
             <div className="text-danger-600 text-sm">{error}</div>
           ) : aiAvailable && summary ? (
             <div>
               <p className="text-gray-700 mb-4">{summary.summary}</p>
-              <div className="text-xs text-gray-500">
-                Generated {new Date(summary.generated_at).toLocaleString()}
-              </div>
+              {summary.generated_at && (
+                <div className="text-xs text-gray-500">
+                  Generated {new Date(summary.generated_at).toLocaleString()}
+                </div>
+              )}
             </div>
           ) : !aiAvailable ? (
             <div className="text-center py-4">

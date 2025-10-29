@@ -3,7 +3,7 @@
  * Includes task actions, status updates, and quick editing.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const TaskItem = ({ task, onAction }) => {
   console.log('TaskItem: Rendering task:', task);
@@ -15,10 +15,19 @@ const TaskItem = ({ task, onAction }) => {
     priority: task.priority
   });
 
+  // Keep quick-edit state in sync if the task changes
+  useEffect(() => {
+    setEditData({
+      status: task.status,
+      priority: task.priority,
+    });
+  }, [task.status, task.priority]);
+
   const formatDate = (dateString) => {
     if (!dateString) return null;
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
+    if (isNaN(date.getTime())) return null;
+    return date.toLocaleString(undefined, {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -48,7 +57,9 @@ const TaskItem = ({ task, onAction }) => {
 
   const isOverdue = () => {
     if (!task.deadline || task.status === 'completed') return false;
-    return new Date(task.deadline) < new Date();
+    const d = new Date(task.deadline);
+    if (isNaN(d.getTime())) return false;
+    return d < new Date();
   };
 
   const handleQuickUpdate = async () => {
@@ -66,10 +77,16 @@ const TaskItem = ({ task, onAction }) => {
     }
   };
 
+  const createdAt = formatDate(task.created_at);
+  const updatedAt = formatDate(task.updated_at);
+  const deadlineStr = formatDate(task.deadline);
+
   return (
-    <div className={`card transition-all duration-200 hover:shadow-md ${
-      isOverdue() ? 'border-danger-200 bg-danger-50' : ''
-    }`}>
+    <div
+      className={`card transition-all duration-200 hover:shadow-md ${
+        isOverdue() ? 'border-danger-200 bg-danger-50' : ''
+      }`}
+    >
       <div className="card-content">
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
@@ -93,7 +110,7 @@ const TaskItem = ({ task, onAction }) => {
             {/* Task Meta */}
             <div className="flex flex-wrap items-center gap-2 mb-3">
               <span className={`badge ${getStatusColor(task.status)}`}>
-                {task.status.replace('_', ' ')}
+                {String(task.status).replace('_', ' ')}
               </span>
               <span className={`badge ${getPriorityColor(task.priority)}`}>
                 {task.priority}
@@ -103,9 +120,9 @@ const TaskItem = ({ task, onAction }) => {
                   {task.category}
                 </span>
               )}
-              {task.deadline && (
+              {deadlineStr && (
                 <span className="text-sm text-gray-600">
-                  📅 {formatDate(task.deadline)}
+                  📅 {deadlineStr}
                 </span>
               )}
             </div>
@@ -143,7 +160,9 @@ const TaskItem = ({ task, onAction }) => {
                     <select
                       className="input"
                       value={editData.status}
-                      onChange={(e) => setEditData(prev => ({ ...prev, status: e.target.value }))}
+                      onChange={(e) =>
+                        setEditData((prev) => ({ ...prev, status: e.target.value }))
+                      }
                     >
                       <option value="pending">Pending</option>
                       <option value="in_progress">In Progress</option>
@@ -157,7 +176,9 @@ const TaskItem = ({ task, onAction }) => {
                     <select
                       className="input"
                       value={editData.priority}
-                      onChange={(e) => setEditData(prev => ({ ...prev, priority: e.target.value }))}
+                      onChange={(e) =>
+                        setEditData((prev) => ({ ...prev, priority: e.target.value }))
+                      }
                     >
                       <option value="low">Low</option>
                       <option value="medium">Medium</option>
@@ -170,8 +191,8 @@ const TaskItem = ({ task, onAction }) => {
                   <button onClick={handleQuickUpdate} className="btn-primary text-sm">
                     Save
                   </button>
-                  <button 
-                    onClick={() => setIsEditing(false)} 
+                  <button
+                    onClick={() => setIsEditing(false)}
                     className="btn-secondary text-sm"
                   >
                     Cancel
@@ -194,7 +215,7 @@ const TaskItem = ({ task, onAction }) => {
                   ✓
                 </button>
               )}
-              
+
               {task.status !== 'in_progress' && task.status !== 'completed' && (
                 <button
                   onClick={() => handleStatusChange('in_progress')}
@@ -239,10 +260,8 @@ const TaskItem = ({ task, onAction }) => {
 
         {/* Task Footer */}
         <div className="mt-4 pt-3 border-t border-gray-100 flex justify-between items-center text-xs text-gray-500">
-          <span>Created: {formatDate(task.created_at)}</span>
-          {task.updated_at !== task.created_at && (
-            <span>Updated: {formatDate(task.updated_at)}</span>
-          )}
+          <span>{createdAt ? `Created: ${createdAt}` : 'Created: —'}</span>
+          {updatedAt && updatedAt !== createdAt && <span>Updated: {updatedAt}</span>}
         </div>
       </div>
     </div>

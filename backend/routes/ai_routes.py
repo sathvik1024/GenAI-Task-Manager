@@ -1,255 +1,335 @@
 """
 AI-powered routes for task parsing, prioritization, and summary generation.
-Integrates OpenAI API for intelligent task management features.
+Mounted at /api/ai from app.py
 """
+
+from __future__ import annotations
+
+import os
+import re
+from datetime import datetime
+from typing import Optional
 
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from dateutil import parser as date_parser  # robust parsing
+
 from models_mongo import Task, User
 from services.ai_service import AIService
 from services.email_service import EmailService
-from datetime import datetime
-from services.reminder_service import mail
+from services.whatsapp_service import WhatsAppService
+from services.reminder_service import mail, schedule_task_reminder  # (app, payload)
 
-# Create AI routes blueprint
-ai_bp = Blueprint('ai', __name__, url_prefix='/api/ai')
+# Blueprint (no prefix here; app.py mounts it at /api/ai)
+ai_bp = Blueprint("ai", __name__)
 
-@ai_bp.route('/parse-task', methods=['POST'])
+
+# ---------------------------------------------------------------------
+# Date helpers
+# ---------------------------------------------------------------------
+_DEF_TIME_H = 23
+_DEF_TIME_M = 59
+
+
+def _strip_ordinals(text: str) -> str:
+    """turn '30th' -> '30' etc."""
+    return re.sub(r"(\d+)(st|nd|rd|th)\b", r"\1", text, flags=re.I)
+
+
+def _normalize_deadline_for_input(raw: Optional[str]) -> Optional[str]:
+    """
+    Convert human/ISO to 'YYYY-MM-DDTHH:MM' for <input type="datetime-local">.
+    If only a date was present, default to 23:59.
+    """
+    if not raw:
+        return None
+    s = _strip_ordinals(str(raw).strip())
+    time_mentioned = bool(re.search(r"\d{1,2}:\d{2}|\b(am|pm)\b", s, re.I))
+
+    for dayfirst in (True, False):
+        try:
+            dt = date_parser.parse(s, dayfirst=dayfirst, fuzzy=True)
+            if dt.tzinfo:
+                dt = dt.astimezone(tz=None).replace(tzinfo=None)
+            if not time_mentioned:
+                dt = dt.replace(hour=_DEF_TIME_H, minute=_DEF_TIME_M, second=0, microsecond=0)
+            return dt.strftime("%Y-%m-%dT%H:%M")
+        except Exception:
+            continue
+    return None
+
+
+def _parse_deadline_for_storage(raw: Optional[str]) -> Optional[datetime]:
+    """
+    Parse human/ISO to a naive local datetime for DB storage.
+    Defaults to 23:59 when only a date is supplied.
+    """
+    if not raw:
+        return None
+    s = _strip_ordinals(str(raw).strip())
+    time_mentioned = bool(re.search(r"\d{1,2}:\d{2}|\b(am|pm)\b", s, re.I))
+
+    for dayfirst in (True, False):
+        try:
+            dt = date_parser.parse(s, dayfirst=dayfirst, fuzzy=True)
+            if dt.tzinfo:
+                dt = dt.astimezone(tz=None).replace(tzinfo=None)
+            if not time_mentioned:
+                dt = dt.replace(hour=_DEF_TIME_H, minute=_DEF_TIME_M, second=0, microsecond=0)
+            return dt
+        except Exception:
+            continue
+    return None
+
+
+def _ascii_only(s: str) -> bool:
+    """True if the string is ASCII (rough heuristic for 'English-friendly')."""
+    try:
+        s.encode("ascii")
+        return True
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------
+@ai_bp.route("/parse-task", methods=["POST"])
 @jwt_required()
 def parse_natural_language_task():
     """
-    Parse natural language input into structured task data using AI.
-    
-    {
-        "input": "string - natural language task description"
-    }
+    Parse a natural language task using AIService and return fields ready for the form.
+    - Ensures deadline is formatted for <input type="datetime-local">
+    - Makes the title English-friendly when possible (uses translated text as fallback)
     """
     try:
-        user_id = int(get_jwt_identity())  # Convert string back to int
-        data = request.get_json()
-        
-        if not data or 'input' not in data:
-            return jsonify({'error': 'Input text is required'}), 400
-        
-        user_input = data['input'].strip()
+        _ = get_jwt_identity()
+        data = request.get_json() or {}
+        user_input = (data.get("input") or "").strip()
         if not user_input:
-            return jsonify({'error': 'Input cannot be empty'}), 400
-        
-        # Use AI service to parse the task
-        parsed_task = AIService.parse_natural_language_task(user_input)
-        
-        return jsonify({
-            'message': 'Task parsed successfully',
-            'parsed_task': parsed_task
-        }), 200
-        
-    except Exception as e:
-        return jsonify({'error': f'Failed to parse task: {str(e)}'}), 500
+            return jsonify({"error": "Input text is required"}), 400
 
-@ai_bp.route('/create-from-text', methods=['POST'])
+        parsed = AIService.parse_natural_language_task(user_input)
+
+        # If the model returned a non-ASCII title, fall back to translated_text (English) snippet
+        if not _ascii_only(parsed.get("title", "")):
+            tt = parsed.get("translated_text") or ""
+            if tt:
+                parsed["title"] = tt[:60]
+
+        # Convert deadline to input-friendly value (or derive it from the text)
+        parsed["deadline"] = _normalize_deadline_for_input(
+            parsed.get("deadline") or user_input
+        )
+
+        return jsonify({"message": "Task parsed successfully", "parsed_task": parsed}), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Failed to parse task: {str(e)}"}), 500
+
+
+@ai_bp.route("/create-from-text", methods=["POST"])
 @jwt_required()
 def create_task_from_text():
     """
-    Parse natural language input and directly create a task.
-    
-    Expected JSON:
-    {
-        "input": "string - natural language task description"
-    }
+    Parse natural language text and create a Task immediately.
+    Also triggers email + WhatsApp (if configured) + schedules reminder.
     """
     try:
-        user_id = int(get_jwt_identity())  # Convert string back to int
-        data = request.get_json()
-
-        if not data or 'input' not in data:
-            return jsonify({'error': 'Input text is required'}), 400
-        
-        user_input = data['input'].strip()
+        user_id = int(get_jwt_identity())
+        data = request.get_json() or {}
+        user_input = (data.get("input") or "").strip()
         if not user_input:
-            return jsonify({'error': 'Input cannot be empty'}), 400
-        
-        # Parse task using AI
-        parsed_data = AIService.parse_natural_language_task(user_input)
-        
-        # Parse deadline if provided
-        deadline = None
-        if parsed_data.get('deadline'):
-            try:
-                deadline = datetime.fromisoformat(parsed_data['deadline'])
-            except (ValueError, TypeError):
-                deadline = None
-        
-        # Create new task
+            return jsonify({"error": "Input text is required"}), 400
+
+        parsed = AIService.parse_natural_language_task(user_input)
+
+        title = parsed.get("title") or user_input[:60]
+        # English-friendly title fallback
+        if not _ascii_only(title):
+            tt = parsed.get("translated_text") or ""
+            if tt:
+                title = tt[:60]
+
+        priority = (parsed.get("priority") or "medium").lower()
+        category = parsed.get("category") or "general"
+        description = parsed.get("description") or user_input
+        deadline = _parse_deadline_for_storage(parsed.get("deadline") or user_input)
+
         task = Task(
-            title=parsed_data['title'],
-            description=parsed_data['description'],
+            title=title,
+            description=description,
             deadline=deadline,
-            priority=parsed_data['priority'],
-            category=parsed_data['category'],
-            status='pending',
+            priority=priority,
+            category=category,
+            status="pending",
             user_id=user_id,
-            ai_generated=parsed_data['ai_generated']
+            ai_generated=bool(parsed.get("ai_generated")),
         )
-        
-        # Set subtasks if provided
-        if parsed_data.get('subtasks'):
-            task.set_subtasks(parsed_data['subtasks'])
-        
-        task.save() #to mongodb
 
-        # Send email notification
+        if parsed.get("subtasks"):
+            task.set_subtasks(parsed["subtasks"])
+
+        task.save()
+
+        user = User.find_by_id(user_id)
+
+        # Schedule reminder (30-min-before handled inside your reminder_service)
         try:
-            user = User.find_by_id(user_id)
-            if user and user.email:
+            reminder_payload = {
+                "id": task.id,
+                "title": task.title,
+                "deadline": task.deadline.isoformat() if task.deadline else None,
+                "user_email": user.email if user else None,
+                "user_whatsapp": getattr(user, "whatsapp_number", None) if user else None,
+            }
+            # Correct signature: (app, payload)
+            schedule_task_reminder(current_app, reminder_payload)
+        except Exception as sched_err:
+            print(f"[AI Routes] Failed to schedule reminder: {sched_err}")
 
-                EmailService.send_task_created_notification(
-                    mail,
-                    user.email,
-                    task.to_dict()
-                )
+        # Email
+        try:
+            if user and user.email:
+                EmailService.send_task_created_notification(mail, user.email, task.to_dict())
         except Exception as email_error:
-            print(f"Failed to send email notification: {email_error}")
+            print(f"[AI Routes] Email failed: {email_error}")
+
+        # WhatsApp with clear logging (you'll see Twilio errors in console)
+        try:
+            wa_number = getattr(user, "whatsapp_number", "") if user else ""
+            if wa_number:
+                wa = WhatsAppService()
+                if not wa.is_configured():
+                    print("[AI Routes] WhatsApp not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM")
+                else:
+                    ok, sid, err = wa.send_message(
+                        wa_number,
+                        (
+                            "✅ *New Task Created!*\n\n"
+                            f"*Title:* {task.title}\n"
+                            f"*Category:* {str(task.category).capitalize()}\n"
+                            f"*Priority:* {str(task.priority).capitalize()}\n"
+                            f"*Deadline:* {task.deadline.strftime('%d-%m-%Y %I:%M %p') if task.deadline else 'No deadline'}\n\n"
+                            "🧠 I'll remind you before the deadline!"
+                        )
+                    )
+                    if ok:
+                        print(f"[AI Routes] WhatsApp message sent. SID={sid}")
+                    else:
+                        print(f"[AI Routes] WhatsApp send failed: {err}")
+        except Exception as wa_error:
+            print(f"[AI Routes] WhatsApp unexpected error: {wa_error}")
 
         return jsonify({
-            'message': 'Task created successfully from AI parsing',
-            'task': task.to_dict(),
-            'original_input': user_input
+            "message": "Task created successfully from AI parsing",
+            "task": task.to_dict(),
+            "original_input": user_input
         }), 201
-        
-    except Exception as e:
-        return jsonify({'error': f'Failed to create task from text: {str(e)}'}), 500
 
-@ai_bp.route('/prioritize-tasks', methods=['POST'])
+    except Exception as e:
+        return jsonify({"error": f"Failed to create task from text: {str(e)}"}), 500
+
+
+@ai_bp.route("/prioritize-tasks", methods=["POST"])
 @jwt_required()
 def prioritize_user_tasks():
-    """
-    Use AI to intelligently prioritize user's tasks.
-
-    """
+    """Use AI to intelligently prioritize user's tasks."""
     try:
-        user_id = int(get_jwt_identity())  # Convert string back to int
+        user_id = int(get_jwt_identity())
         data = request.get_json() or {}
-        
-        # Get tasks to prioritize
-        if 'task_ids' in data and data['task_ids']:
-            # Get specific tasks by IDs
-            all_user_tasks = Task.find_by_user_id(user_id)
-            tasks = [task for task in all_user_tasks
-                    if task.id in data['task_ids'] and task.status != 'completed']
-        else:
-            # Get all non-completed tasks
-            all_user_tasks = Task.find_by_user_id(user_id)
-            tasks = [task for task in all_user_tasks if task.status != 'completed']
-        
-        if not tasks:
-            return jsonify({'message': 'No tasks to prioritize'}), 200
-        
-        # Convert to dictionaries for AI processing
-        task_dicts = [task.to_dict() for task in tasks]
-        
-        # Use AI to prioritize
-        prioritized_tasks = AIService.prioritize_tasks(task_dicts)
-        
-        return jsonify({
-            'message': 'Tasks prioritized successfully',
-            'prioritized_tasks': prioritized_tasks,
-            'count': len(prioritized_tasks)
-        }), 200
-        
-    except Exception as e:
-        return jsonify({'error': f'Failed to prioritize tasks: {str(e)}'}), 500
 
-@ai_bp.route('/generate-summary', methods=['GET'])
+        if data.get("task_ids"):
+            all_user_tasks = Task.find_by_user_id(user_id)
+            target_ids = set(data["task_ids"])
+            tasks = [t for t in all_user_tasks if t.id in target_ids and t.status != "completed"]
+        else:
+            tasks = [t for t in Task.find_by_user_id(user_id) if t.status != "completed"]
+
+        if not tasks:
+            return jsonify({"message": "No tasks to prioritize", "prioritized_tasks": []}), 200
+
+        prioritized_tasks = AIService.prioritize_tasks([t.to_dict() for t in tasks])
+
+        return jsonify({
+            "message": "Tasks prioritized successfully",
+            "prioritized_tasks": prioritized_tasks,
+            "count": len(prioritized_tasks)
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Failed to prioritize tasks: {str(e)}"}), 500
+
+
+@ai_bp.route("/generate-summary", methods=["GET"])
 @jwt_required()
 def generate_task_summary():
-    """
-    Generate AI-powered summary of user's tasks.
-    
-    Query parameters:
-    - period: 'daily' or 'weekly' (default: daily)
-    """
+    """Generate AI-powered summary of user's tasks."""
     try:
-        user_id = int(get_jwt_identity())  # Convert string back to int
-        period = request.args.get('period', 'daily')
-        
-        if period not in ['daily', 'weekly']:
-            return jsonify({'error': 'Period must be daily or weekly'}), 400
-        
-        # Get user's tasks
-        tasks = Task.find_by_user_id(user_id)
-        task_dicts = [task.to_dict() for task in tasks]
-        
-        # Generate summary using AI
-        summary = AIService.generate_summary(task_dicts, period)
-        
-        # stats like total, completed and pendinggg
-        total_tasks = len(tasks)
-        completed_tasks = len([t for t in tasks if t.status == 'completed'])
-        pending_tasks = len([t for t in tasks if t.status in ['pending', 'in_progress']])
-        
-        return jsonify({
-            'summary': summary,
-            'period': period,
-            'stats': {
-                'total_tasks': total_tasks,
-                'completed_tasks': completed_tasks,
-                'pending_tasks': pending_tasks
-            },
-            'generated_at': datetime.utcnow().isoformat()
-        }), 200
-        
-    except Exception as e:
-        return jsonify({'error': f'Failed to generate summary: {str(e)}'}), 500
+        user_id = int(get_jwt_identity())
+        period = request.args.get("period", "daily")
+        if period not in ["daily", "weekly"]:
+            return jsonify({"error": "Period must be daily or weekly"}), 400
 
-@ai_bp.route('/suggest-subtasks', methods=['POST'])
+        tasks = Task.find_by_user_id(user_id)
+        summary = AIService.generate_summary([t.to_dict() for t in tasks], period)
+
+        total_tasks = len(tasks)
+        completed_tasks = len([t for t in tasks if t.status == "completed"])
+        pending_tasks = len([t for t in tasks if t.status in ["pending", "in_progress"]])
+
+        return jsonify({
+            "summary": summary,
+            "period": period,
+            "stats": {
+                "total_tasks": total_tasks,
+                "completed_tasks": completed_tasks,
+                "pending_tasks": pending_tasks
+            },
+            "generated_at": datetime.utcnow().isoformat()
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Failed to generate summary: {str(e)}"}), 500
+
+
+@ai_bp.route("/suggest-subtasks", methods=["POST"])
 @jwt_required()
 def suggest_subtasks():
-    """
-    Generate AI suggestions for subtasks based on a task title/description.
-
-    """
+    """Generate AI suggestions for subtasks based on a task title/description."""
     try:
-        data = request.get_json()
-        
-        if not data or 'title' not in data:
-            return jsonify({'error': 'Task title is required'}), 400
-        
-        title = data['title'].strip()
-        description = data.get('description', '').strip()
-        
-        # Create a temporary task input for AI parsing
-        task_input = f"{title}. {description}".strip()
-        
-        # Use AI to parse and get subtasks
-        parsed_data = AIService.parse_natural_language_task(task_input)
-        
-        return jsonify({
-            'suggested_subtasks': parsed_data.get('subtasks', []),
-            'suggested_category': parsed_data.get('category', 'general'),
-            'suggested_priority': parsed_data.get('priority', 'medium')
-        }), 200
-        
-    except Exception as e:
-        return jsonify({'error': f'Failed to suggest subtasks: {str(e)}'}), 500
+        data = request.get_json() or {}
 
-@ai_bp.route('/health', methods=['GET'])
+        title = (data.get("title") or "").strip()
+        if not title:
+            return jsonify({"error": "Task title is required"}), 400
+
+        description = (data.get("description") or "").strip()
+        parsed = AIService.parse_natural_language_task(f"{title}. {description}".strip())
+
+        return jsonify({
+            "suggested_subtasks": parsed.get("subtasks", []),
+            "suggested_category": parsed.get("category", "general"),
+            "suggested_priority": parsed.get("priority", "medium")
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": f"Failed to suggest subtasks: {str(e)}"}), 500
+
+
+@ai_bp.route("/health", methods=["GET"])
 def ai_health_check():
-    """
-    Check if AI service is available and configured.
-    """
+    """Check if AI service is available and configured."""
     try:
-        import os
-        api_key_configured = bool(os.getenv('OPENAI_API_KEY'))
-        
+        api_key_configured = bool(os.getenv("OPENAI_API_KEY"))
         return jsonify({
-            'ai_service_available': True,
-            'openai_api_configured': api_key_configured,
-            'status': 'healthy' if api_key_configured else 'missing_api_key'
+            "ai_service_available": True,
+            "openai_api_configured": api_key_configured,
+            "status": "healthy" if api_key_configured else "missing_api_key"
         }), 200
-        
     except Exception as e:
         return jsonify({
-            'ai_service_available': False,
-            'error': str(e),
-            'status': 'unhealthy'
+            "ai_service_available": False,
+            "error": str(e),
+            "status": "unhealthy"
         }), 500

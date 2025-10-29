@@ -3,44 +3,36 @@ Translation Service for multilingual task parsing.
 Handles language detection, translation, and NLP processing.
 """
 
-import os
 import re
 from typing import Dict, Optional, Tuple
+
 from langdetect import detect, DetectorFactory
 from deep_translator import GoogleTranslator
 import nltk
-from datetime import datetime, timedelta
 
-# Set seed for consistent language detection
+# Make langdetect deterministic
 DetectorFactory.seed = 0
+
+
+def _clean_text(s: str) -> str:
+    """Normalize spaces and strip control characters for stabler detection."""
+    s = (s or "").strip()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
 
 class TranslationService:
     def __init__(self):
         self._download_nltk_data()
-        
+
         self.language_names = {
-            'en': 'English',
-            'es': 'Spanish', 
-            'fr': 'French',
-            'de': 'German',
-            'it': 'Italian',
-            'pt': 'Portuguese',
-            'ru': 'Russian',
-            'ja': 'Japanese',
-            'ko': 'Korean',
-            'zh': 'Chinese',
-            'ar': 'Arabic',
-            'hi': 'Hindi',
-            'te': 'Telugu',
-            'ta': 'Tamil',
-            'kn': 'Kannada',
-            'ml': 'Malayalam',
-            'bn': 'Bengali',
-            'gu': 'Gujarati',
-            'mr': 'Marathi',
-            'pa': 'Punjabi'
+            'en': 'English', 'es': 'Spanish', 'fr': 'French', 'de': 'German', 'it': 'Italian',
+            'pt': 'Portuguese', 'ru': 'Russian', 'ja': 'Japanese', 'ko': 'Korean', 'zh': 'Chinese',
+            'ar': 'Arabic', 'hi': 'Hindi', 'te': 'Telugu', 'ta': 'Tamil', 'kn': 'Kannada',
+            'ml': 'Malayalam', 'bn': 'Bengali', 'gu': 'Gujarati', 'mr': 'Marathi', 'pa': 'Punjabi'
         }
-        
+
+        # --- Priority keywords across languages ---
         self.priority_keywords = {
             'urgent': {
                 'en': ['urgent', 'asap', 'immediately', 'critical', 'emergency'],
@@ -68,7 +60,7 @@ class TranslationService:
             },
             'low': {
                 'en': ['low priority', 'when possible', 'eventually', 'low'],
-                'es': ['baja prioridad', 'cuando sea posible', 'bajo'],
+                'es': ['baja prioridad', 'cuando sea posible', 'بطيء'],
                 'fr': ['basse priorité', 'quand possible', 'bas'],
                 'de': ['niedrige priorität', 'wenn möglich', 'niedrig'],
                 'hi': ['कम प्राथमिकता', 'जब संभव हो'],
@@ -79,8 +71,8 @@ class TranslationService:
                 'ar': ['أولوية منخفضة']
             }
         }
-        
-        # Category
+
+        # --- Category keywords across languages ---
         self.category_keywords = {
             'work': {
                 'en': ['work', 'office', 'job', 'meeting', 'report', 'project', 'business'],
@@ -108,7 +100,7 @@ class TranslationService:
             },
             'education': {
                 'en': ['study', 'homework', 'assignment', 'exam', 'school', 'university', 'college'],
-                'es': ['estudiar', 'tarea', 'examen', 'escuela', 'universidad'],
+                'es': ['estudiar', 'tarea', 'امتحان', 'escuela', 'universidad'],
                 'fr': ['étudier', 'devoirs', 'examen', 'école', 'université'],
                 'de': ['studieren', 'hausaufgaben', 'prüfung', 'schule', 'universität'],
                 'hi': ['पढ़ाई', 'होमवर्क', 'परीक्षा', 'स्कूल', 'विश्वविद्यालय'],
@@ -144,43 +136,49 @@ class TranslationService:
             }
         }
 
+    # ---------------------------------------------------------
+    # Setup
+    # ---------------------------------------------------------
     def _download_nltk_data(self):
         try:
             nltk.data.find('tokenizers/punkt')
         except LookupError:
             nltk.download('punkt', quiet=True)
-        
         try:
             nltk.data.find('corpora/stopwords')
         except LookupError:
             nltk.download('stopwords', quiet=True)
 
+    # ---------------------------------------------------------
+    # Language detection & translation
+    # ---------------------------------------------------------
     def detect_language(self, text: str) -> Tuple[str, float]:
         """
         Detect the language of the input text.
-        Returns (language_code, confidence)
+        Returns (language_code, confidence_heuristic)
         """
+        cleaned = _clean_text(text)
+        if not cleaned:
+            return 'en', 0.0
         try:
-            detected_lang = detect(text)
-            confidence = 0.9  # langdetect doesn't provide confidence, so we estimate
-            
-            print(f" Detected language: {detected_lang} ({self.language_names.get(detected_lang, 'Unknown')})")
-            return detected_lang, confidence
+            lang = detect(cleaned)
+            conf = 0.9 if len(cleaned) >= 10 else 0.7
+            print(f" Detected language: {lang} ({self.language_names.get(lang, 'Unknown')})")
+            return lang, conf
         except Exception as e:
             print(f" Language detection failed: {e}")
-            return 'en', 0.5  # Default to English
+            return 'en', 0.5
 
-    def translate_to_english(self, text: str, source_lang: str = None) -> Dict:
+    def translate_to_english(self, text: str, source_lang: Optional[str] = None) -> Dict:
         """
         Translate text to English if it's not already in English.
-        Returns dict with original_text, translated_text, source_language
+        Returns dict with original_text, translated_text, source_language, translation_needed
         """
+        cleaned = _clean_text(text)
         try:
-            # Detect language if not provided
             if not source_lang:
-                source_lang, confidence = self.detect_language(text)
-            
-            # If already English, no translation needed
+                source_lang, _ = self.detect_language(cleaned)
+
             if source_lang == 'en':
                 return {
                     'original_text': text,
@@ -188,22 +186,21 @@ class TranslationService:
                     'source_language': 'en',
                     'translation_needed': False
                 }
-            
-            # Translate to English using deep-translator
+
             print(f" Translating from {self.language_names.get(source_lang, source_lang)} to English...")
-            translated_text = GoogleTranslator(source=source_lang, target='en').translate(text)
+            translated_text = GoogleTranslator(source=source_lang, target='en').translate(cleaned)
             print(f" Translation: '{text}' → '{translated_text}'")
-            
+
             return {
                 'original_text': text,
                 'translated_text': translated_text,
                 'source_language': source_lang,
                 'translation_needed': True
             }
-            
+
         except Exception as e:
+            # Graceful fallback: return original so downstream still works
             print(f" Translation failed: {e}")
-            # Return original text if translation fails
             return {
                 'original_text': text,
                 'translated_text': text,
@@ -212,35 +209,34 @@ class TranslationService:
                 'error': str(e)
             }
 
+    # ---------------------------------------------------------
+    # Keyword-based feature extraction
+    # ---------------------------------------------------------
     def extract_multilingual_features(self, original_text: str, source_lang: str) -> Dict:
         """
         Extract priority and category from original text using multilingual keywords.
-        This works even if translation fails.
+        Works even if translation fails.
         """
-        text_lower = original_text.lower()
-        
-        # Extract priority
-        priority = 'medium'  # default
-        for priority_level, lang_keywords in self.priority_keywords.items():
-            if source_lang in lang_keywords:
-                keywords = lang_keywords[source_lang]
-                if any(keyword in text_lower for keyword in keywords):
-                    priority = priority_level
-                    break
-        
-        # Extract category
-        category = 'general'  # default
-        for cat, lang_keywords in self.category_keywords.items():
-            if source_lang in lang_keywords:
-                keywords = lang_keywords[source_lang]
-                if any(keyword in text_lower for keyword in keywords):
-                    category = cat
-                    break
-        
-        return {
-            'priority': priority,
-            'category': category
-        }
+        text_lower = _clean_text(original_text).lower()
 
-# Global instance
+        # Priority
+        priority = 'medium'
+        for level, lang_kw in self.priority_keywords.items():
+            kws = lang_kw.get(source_lang, [])
+            if any(k in text_lower for k in kws):
+                priority = level
+                break
+
+        # Category
+        category = 'general'
+        for cat, lang_kw in self.category_keywords.items():
+            kws = lang_kw.get(source_lang, [])
+            if any(k in text_lower for k in kws):
+                category = cat
+                break
+
+        return {'priority': priority, 'category': category}
+
+
+# Global singleton used by AIService
 translation_service = TranslationService()

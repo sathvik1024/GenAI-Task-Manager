@@ -1,199 +1,197 @@
 /**
- * API utility functions for communicating with Flask backend.
+ * API utility functions for communicating with the Flask backend.
  * Handles authentication, requests, and error handling.
  */
 
-import axios from 'axios';
+import axios from "axios";
 
-// Create axios instance with base configuration
+/* ---------------------------------------------
+   Base URL normalization
+   Put ONLY the origin in REACT_APP_API_BASE / REACT_APP_API_URL.
+   We will append "/api" exactly once.
+---------------------------------------------- */
+const RAW_ENV =
+  process.env.REACT_APP_API_BASE ||
+  process.env.REACT_APP_API_URL ||
+  "http://localhost:5000";
+
+// 1) trim trailing slashes
+// 2) strip a trailing "/api" if someone included it in the env by mistake
+const BASE = RAW_ENV.replace(/\/+$/, "").replace(/\/api\/?$/i, "");
+
+// Axios instance (server mounts all endpoints under /api)
 const api = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:5000/api',
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json',
-  },
+  baseURL: `${BASE}/api`,
+  timeout: 15000,
+  headers: { "Content-Type": "application/json" },
+  withCredentials: false, // we use Bearer tokens, not cookies
 });
 
-// Request interceptor to add auth token
+/* ---------------------------------------------
+   Token & User helpers (localStorage)
+---------------------------------------------- */
+const TOKEN_KEY = "token";
+const USER_KEY = "user";
+
+export const setAuthToken = (token) =>
+  token ? localStorage.setItem(TOKEN_KEY, token) : localStorage.removeItem(TOKEN_KEY);
+
+export const getAuthToken = () => localStorage.getItem(TOKEN_KEY) || null;
+
+export const setUser = (user) =>
+  user ? localStorage.setItem(USER_KEY, JSON.stringify(user)) : localStorage.removeItem(USER_KEY);
+
+export const getUser = () => {
+  const raw = localStorage.getItem(USER_KEY);
+  try {
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    localStorage.removeItem(USER_KEY);
+    return null;
+  }
+};
+
+export const logout = () => {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+  if (window.location.pathname !== "/login") window.location.href = "/login";
+};
+
+/* ---------------------------------------------
+   Interceptors
+---------------------------------------------- */
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
-    console.log('API Request interceptor - URL:', config.url);
-    console.log('API Request interceptor - token:', token ? `exists (${token.substring(0, 20)}...)` : 'missing');
-    console.log('API Request interceptor - localStorage contents:', Object.keys(localStorage));
-
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-      console.log('Added Authorization header to request');
-    } else {
-      console.log('No token found in localStorage - request will be unauthorized');
-    }
+    const token = getAuthToken();
+    if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
   },
-  (error) => {
-    console.error('API Request interceptor error:', error);
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
 
-// Response interceptor to handle auth errors
 api.interceptors.response.use(
-  (response) => {
-    console.log('API Response interceptor - Success:', response.config.url, response.status);
-    return response;
-  },
+  (res) => res,
   (error) => {
-    console.log('API Response interceptor - Error:', error.config?.url, error.response?.status, error.message);
-    if (error.response?.status === 401) {
-      // Token expired or invalid
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.href = '/login';
-    }
+    if (error?.response?.status === 401) logout();
     return Promise.reject(error);
   }
 );
 
-// Auth API functions
+/* ---------------------------------------------
+   Error normalization
+---------------------------------------------- */
+export const handleApiError = (error) => {
+  if (error?.response?.data?.error) return error.response.data.error;
+  if (error?.response?.data?.message) return error.response.data.message;
+  if (error?.message) return error.message;
+  return "An unexpected error occurred";
+};
+
+/* ---------------------------------------------
+   AUTH
+---------------------------------------------- */
 export const authAPI = {
   login: async (credentials) => {
-    const response = await api.post('/auth/login', credentials);
-    return response.data;
+    const { data } = await api.post("/auth/login", credentials);
+    if (data?.access_token) setAuthToken(data.access_token);
+    if (data?.user) setUser(data.user);
+    return data;
   },
 
   signup: async (userData) => {
-    const response = await api.post('/auth/signup', userData);
-    return response.data;
+    const { data } = await api.post("/auth/signup", userData);
+    if (data?.access_token) setAuthToken(data.access_token);
+    if (data?.user) setUser(data.user);
+    return data;
   },
 
   verifyToken: async () => {
-    const response = await api.get('/auth/verify');
-    return response.data;
+    const { data } = await api.get("/auth/verify");
+    return data;
   },
 
   getProfile: async () => {
-    const response = await api.get('/auth/profile');
-    return response.data;
+    const { data } = await api.get("/auth/profile");
+    return data;
   },
 };
 
-// Task API functions
+/* ---------------------------------------------
+   TASKS
+---------------------------------------------- */
 export const taskAPI = {
   getTasks: async (filters = {}) => {
     const params = new URLSearchParams(filters);
-    const queryString = params.toString();
-    const url = queryString ? `/tasks?${queryString}` : '/tasks';
-    const response = await api.get(url);
-    return response.data;
+    const url = params.toString() ? `/tasks?${params}` : "/tasks";
+    const { data } = await api.get(url);
+    return data;
   },
 
   getTask: async (taskId) => {
-    const response = await api.get(`/tasks/${taskId}`);
-    return response.data;
+    const { data } = await api.get(`/tasks/${taskId}`);
+    return data;
   },
 
   createTask: async (taskData) => {
-    const response = await api.post('/tasks', taskData);
-    return response.data;
+    const { data } = await api.post("/tasks", taskData);
+    return data;
   },
 
   updateTask: async (taskId, taskData) => {
-    const response = await api.put(`/tasks/${taskId}`, taskData);
-    return response.data;
+    const { data } = await api.put(`/tasks/${taskId}`, taskData);
+    return data;
   },
 
   deleteTask: async (taskId) => {
-    const response = await api.delete(`/tasks/${taskId}`);
-    return response.data;
+    const { data } = await api.delete(`/tasks/${taskId}`);
+    return data;
   },
 
   getStats: async () => {
-    const response = await api.get('/tasks/stats');
-    return response.data;
+    const { data } = await api.get("/tasks/stats");
+    return data;
+  },
+
+  sendTestEmail: async () => {
+    const { data } = await api.post("/tasks/test-email");
+    return data;
   },
 };
 
-// AI API functions
+/* ---------------------------------------------
+   AI
+---------------------------------------------- */
 export const aiAPI = {
   parseTask: async (input) => {
-    const response = await api.post('/ai/parse-task', { input });
-    return response.data;
+    const { data } = await api.post("/ai/parse-task", { input });
+    return data;
   },
 
   createFromText: async (input) => {
-    const response = await api.post('/ai/create-from-text', { input });
-    return response.data;
+    const { data } = await api.post("/ai/create-from-text", { input });
+    return data;
   },
 
   prioritizeTasks: async (taskIds = null) => {
     const payload = taskIds ? { task_ids: taskIds } : {};
-    const response = await api.post('/ai/prioritize-tasks', payload);
-    return response.data;
+    const { data } = await api.post("/ai/prioritize-tasks", payload);
+    return data;
   },
 
-  generateSummary: async (period = 'daily') => {
-    const response = await api.get(`/ai/generate-summary?period=${period}`);
-    return response.data;
+  generateSummary: async (period = "daily") => {
+    const { data } = await api.get("/ai/generate-summary", { params: { period } });
+    return data;
   },
 
-  suggestSubtasks: async (title, description = '') => {
-    const response = await api.post('/ai/suggest-subtasks', { title, description });
-    return response.data;
+  suggestSubtasks: async (title, description = "") => {
+    const { data } = await api.post("/ai/suggest-subtasks", { title, description });
+    return data;
   },
 
   healthCheck: async () => {
-    const response = await api.get('/ai/health');
-    return response.data;
+    const { data } = await api.get("/ai/health");
+    return data;
   },
-};
-
-// Utility functions
-export const setAuthToken = (token) => {
-  console.log('setAuthToken called with:', token ? 'token provided' : 'null/undefined');
-  if (token) {
-    localStorage.setItem('token', token);
-    console.log('Token stored in localStorage');
-    // Verify it was stored
-    const stored = localStorage.getItem('token');
-    console.log('Verification - token in localStorage:', stored ? 'exists' : 'missing');
-  } else {
-    localStorage.removeItem('token');
-    console.log('Token removed from localStorage');
-  }
-};
-
-export const getAuthToken = () => {
-  return localStorage.getItem('token');
-};
-
-export const setUser = (user) => {
-  if (user) {
-    localStorage.setItem('user', JSON.stringify(user));
-  } else {
-    localStorage.removeItem('user');
-  }
-};
-
-export const getUser = () => {
-  const user = localStorage.getItem('user');
-  return user ? JSON.parse(user) : null;
-};
-
-export const logout = () => {
-  localStorage.removeItem('token');
-  localStorage.removeItem('user');
-  window.location.href = '/login';
-};
-
-// Error handling utility
-export const handleApiError = (error) => {
-  if (error.response?.data?.error) {
-    return error.response.data.error;
-  } else if (error.message) {
-    return error.message;
-  } else {
-    return 'An unexpected error occurred';
-  }
 };
 
 export default api;
