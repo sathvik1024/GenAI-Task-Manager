@@ -54,8 +54,7 @@ const AuthProvider = ({ children }) => {
               persistUser(null);
               setIsAuthenticated(false);
             }
-          } catch (err) {
-            console.error("Token verification failed:", err);
+          } catch {
             setAuthToken(null);
             persistUser(null);
             setIsAuthenticated(false);
@@ -63,11 +62,6 @@ const AuthProvider = ({ children }) => {
         } else {
           setIsAuthenticated(false);
         }
-      } catch (err) {
-        console.error("Auth check failed:", err);
-        setAuthToken(null);
-        persistUser(null);
-        setIsAuthenticated(false);
       } finally {
         setLoading(false);
       }
@@ -80,17 +74,13 @@ const AuthProvider = ({ children }) => {
     try {
       const res = await authAPI.login(credentials);
       if (res?.access_token && res?.user) {
-        // token & user are persisted by api helpers used in Login page via context
         setUserState(res.user);
         setIsAuthenticated(true);
         return { success: true };
       }
       return { success: false, error: "Invalid response from server" };
     } catch (error) {
-      return {
-        success: false,
-        error: error?.response?.data?.error || "Login failed",
-      };
+      return { success: false, error: error?.response?.data?.error || "Login failed" };
     }
   };
 
@@ -104,10 +94,7 @@ const AuthProvider = ({ children }) => {
       }
       return { success: false, error: "Invalid response from server" };
     } catch (error) {
-      return {
-        success: false,
-        error: error?.response?.data?.error || "Signup failed",
-      };
+      return { success: false, error: error?.response?.data?.error || "Signup failed" };
     }
   };
 
@@ -157,7 +144,7 @@ function App() {
   return (
     <AuthProvider>
       <Router>
-        <div className="App min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-gray-50">
           <Routes>
             {/* Public */}
             <Route
@@ -202,7 +189,7 @@ function App() {
               element={
                 <div className="min-h-screen flex items-center justify-center">
                   <div className="text-center">
-                    <h1 className="text-4xl font-bold text-gray-900 mb-4">404</h1>
+                    <h1 className="text-4xl font-bold text-gray-900 mb-2">404</h1>
                     <p className="text-gray-600 mb-4">Page not found</p>
                     <a href="/dashboard" className="btn-primary">
                       Go to Dashboard

@@ -1,5 +1,5 @@
 """
-AI-powered routes for task parsing, prioritization, and summary generation.
+AI-powered routes for task parsing, prioritization, summary generation, and subtask suggestions.
 Mounted at /api/ai from app.py
 """
 
@@ -18,7 +18,7 @@ from models_mongo import Task, User
 from services.ai_service import AIService
 from services.email_service import EmailService
 from services.whatsapp_service import WhatsAppService
-from services.reminder_service import mail, schedule_task_reminder  # (app, payload)
+from services.reminder_service import mail, schedule_task_reminder  # signature: (app, payload)
 
 # Blueprint (no prefix here; app.py mounts it at /api/ai)
 ai_bp = Blueprint("ai", __name__)
@@ -100,7 +100,7 @@ def parse_natural_language_task():
     """
     Parse a natural language task using AIService and return fields ready for the form.
     - Ensures deadline is formatted for <input type="datetime-local">
-    - Makes the title English-friendly when possible (uses translated text as fallback)
+    - Makes the title English-friendly when possible (uses title_en fallback)
     """
     try:
         _ = get_jwt_identity()
@@ -111,11 +111,10 @@ def parse_natural_language_task():
 
         parsed = AIService.parse_natural_language_task(user_input)
 
-        # If the model returned a non-ASCII title, fall back to translated_text (English) snippet
+        # If the model returned a non-ASCII title, fall back to 'title_en' (AIService guarantees it)
         if not _ascii_only(parsed.get("title", "")):
-            tt = parsed.get("translated_text") or ""
-            if tt:
-                parsed["title"] = tt[:60]
+            title_en = parsed.get("title_en") or parsed.get("title") or ""
+            parsed["title"] = title_en[:60] if title_en else "Task"
 
         # Convert deadline to input-friendly value (or derive it from the text)
         parsed["deadline"] = _normalize_deadline_for_input(
@@ -144,12 +143,10 @@ def create_task_from_text():
 
         parsed = AIService.parse_natural_language_task(user_input)
 
-        title = parsed.get("title") or user_input[:60]
-        # English-friendly title fallback
+        title = parsed.get("title") or parsed.get("title_en") or user_input[:60] or "Task"
+        # English-friendly fallback
         if not _ascii_only(title):
-            tt = parsed.get("translated_text") or ""
-            if tt:
-                title = tt[:60]
+            title = (parsed.get("title_en") or "Task")[:60]
 
         priority = (parsed.get("priority") or "medium").lower()
         category = parsed.get("category") or "general"
@@ -183,7 +180,6 @@ def create_task_from_text():
                 "user_email": user.email if user else None,
                 "user_whatsapp": getattr(user, "whatsapp_number", None) if user else None,
             }
-            # Correct signature: (app, payload)
             schedule_task_reminder(current_app, reminder_payload)
         except Exception as sched_err:
             print(f"[AI Routes] Failed to schedule reminder: {sched_err}")
@@ -195,29 +191,26 @@ def create_task_from_text():
         except Exception as email_error:
             print(f"[AI Routes] Email failed: {email_error}")
 
-        # WhatsApp with clear logging (you'll see Twilio errors in console)
+        # WhatsApp (best-effort; your service returns SID or None)
         try:
             wa_number = getattr(user, "whatsapp_number", "") if user else ""
             if wa_number:
                 wa = WhatsAppService()
-                if not wa.is_configured():
-                    print("[AI Routes] WhatsApp not configured. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM")
-                else:
-                    ok, sid, err = wa.send_message(
-                        wa_number,
-                        (
-                            "✅ *New Task Created!*\n\n"
-                            f"*Title:* {task.title}\n"
-                            f"*Category:* {str(task.category).capitalize()}\n"
-                            f"*Priority:* {str(task.priority).capitalize()}\n"
-                            f"*Deadline:* {task.deadline.strftime('%d-%m-%Y %I:%M %p') if task.deadline else 'No deadline'}\n\n"
-                            "🧠 I'll remind you before the deadline!"
-                        )
+                sid = wa.send_message(
+                    wa_number,
+                    (
+                        "✅ *New Task Created!*\n\n"
+                        f"*Title:* {task.title}\n"
+                        f"*Category:* {str(task.category).capitalize()}\n"
+                        f"*Priority:* {str(task.priority).capitalize()}\n"
+                        f"*Deadline:* {task.deadline.strftime('%d-%m-%Y %I:%M %p') if task.deadline else 'No deadline'}\n\n"
+                        "🧠 I'll remind you before the deadline!"
                     )
-                    if ok:
-                        print(f"[AI Routes] WhatsApp message sent. SID={sid}")
-                    else:
-                        print(f"[AI Routes] WhatsApp send failed: {err}")
+                )
+                if sid:
+                    print(f"[AI Routes] WhatsApp message sent. SID={sid}")
+                else:
+                    print("[AI Routes] WhatsApp send returned None (check Twilio logs/credentials).")
         except Exception as wa_error:
             print(f"[AI Routes] WhatsApp unexpected error: {wa_error}")
 
@@ -305,12 +298,14 @@ def suggest_subtasks():
             return jsonify({"error": "Task title is required"}), 400
 
         description = (data.get("description") or "").strip()
-        parsed = AIService.parse_natural_language_task(f"{title}. {description}".strip())
+
+        # Use the dedicated AIService method (has OpenAI + fallback)
+        res = AIService.suggest_subtasks(title, description)
 
         return jsonify({
-            "suggested_subtasks": parsed.get("subtasks", []),
-            "suggested_category": parsed.get("category", "general"),
-            "suggested_priority": parsed.get("priority", "medium")
+            "suggested_subtasks": res.get("suggested_subtasks", []),
+            "suggested_category": res.get("suggested_category", "general"),
+            "suggested_priority": res.get("suggested_priority", "medium")
         }), 200
 
     except Exception as e:

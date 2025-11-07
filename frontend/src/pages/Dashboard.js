@@ -62,7 +62,7 @@ const Dashboard = () => {
 
             <div className="flex items-center space-x-3">
               <span className="text-sm text-gray-600 truncate max-w-[30ch]" title={user?.username || "User"}>
-                Welcome, {user?.username || "User"}!
+                Welcome, {user?.username || "User"}
               </span>
 
               <button
@@ -100,7 +100,7 @@ const Dashboard = () => {
               type="button"
               aria-current={activeTab === "overview" ? "page" : undefined}
             >
-              📊 Overview
+               Overview
             </button>
 
             <button
@@ -113,7 +113,7 @@ const Dashboard = () => {
               type="button"
               aria-current={activeTab === "tasks" ? "page" : undefined}
             >
-              📝 All Tasks
+               All Tasks
             </button>
           </nav>
         </div>

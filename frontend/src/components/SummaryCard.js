@@ -3,77 +3,83 @@
  * Shows daily/weekly summaries and task statistics.
  */
 
-import React, { useState, useEffect } from 'react';
-import { aiAPI, taskAPI, handleApiError, getAuthToken } from '../utils/api';
+import React, { useState, useEffect, useRef } from "react";
+import { aiAPI, taskAPI, handleApiError, getAuthToken } from "../utils/api";
 
 const SummaryCard = ({ refreshTrigger }) => {
   const [summary, setSummary] = useState(null);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [period, setPeriod] = useState('daily');
+  const [error, setError] = useState("");
+  const [period, setPeriod] = useState("daily");
   const [aiAvailable, setAiAvailable] = useState(true);
 
+  const mountedRef = useRef(true);
   useEffect(() => {
-    // Add a delay to ensure authentication is established
+    mountedRef.current = true;
     const timer = setTimeout(() => {
       const token = getAuthToken();
-      console.log('SummaryCard: Checking for token...', token ? 'found' : 'not found');
       if (token) {
         fetchData();
       } else {
-        console.log('SummaryCard: No token available, skipping API calls');
-        setLoading(false);
+        if (mountedRef.current) setLoading(false);
       }
-    }, 500); // Increased delay
+    }, 500); // allow auth to settle
 
-    return () => clearTimeout(timer);
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [period, refreshTrigger]);
 
   const fetchData = async () => {
     try {
-      setLoading(true);
-      setError('');
+      if (mountedRef.current) {
+        setLoading(true);
+        setError("");
+      }
 
-      console.log('SummaryCard: Fetching task statistics...');
-      // Fetch task statistics
+      // Task statistics
       const statsResponse = await taskAPI.getStats();
-      setStats(statsResponse);
-      console.log('SummaryCard: Stats fetched successfully');
+      if (mountedRef.current) setStats(statsResponse);
 
-      // Check AI availability and fetch summary
+      // AI availability + summary
       try {
         const aiHealthResponse = await aiAPI.healthCheck();
-        setAiAvailable(aiHealthResponse.openai_api_configured);
+        const ok = !!aiHealthResponse?.openai_api_configured;
+        if (mountedRef.current) setAiAvailable(ok);
 
-        if (aiHealthResponse.openai_api_configured) {
+        if (ok) {
           const summaryResponse = await aiAPI.generateSummary(period);
-          setSummary(summaryResponse);
+          if (mountedRef.current) setSummary(summaryResponse);
         } else {
+          if (mountedRef.current) setSummary(null);
+        }
+      } catch {
+        if (mountedRef.current) {
+          setAiAvailable(false);
           setSummary(null);
         }
-      } catch (aiError) {
-        console.warn('AI service unavailable:', aiError);
-        setAiAvailable(false);
-        setSummary(null);
       }
     } catch (err) {
-      setError(handleApiError(err));
+      if (mountedRef.current) setError(handleApiError(err));
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
   };
 
   const getCompletionPercentage = () => {
-    if (!stats || stats.total_tasks === 0) return 0;
-    return Math.round((stats.completed_tasks / stats.total_tasks) * 100);
+    if (!stats || !stats.total_tasks) return 0;
+    const pct = Math.round((stats.completed_tasks / stats.total_tasks) * 100);
+    return isNaN(pct) ? 0 : pct;
   };
 
   const getProgressColor = (percentage) => {
-    if (percentage >= 80) return 'bg-success-500';
-    if (percentage >= 60) return 'bg-primary-500';
-    if (percentage >= 40) return 'bg-warning-500';
-    return 'bg-danger-500';
+    if (percentage >= 80) return "bg-success-500";
+    if (percentage >= 60) return "bg-primary-500";
+    if (percentage >= 40) return "bg-warning-500";
+    return "bg-danger-500";
   };
 
   if (loading) {
@@ -81,7 +87,7 @@ const SummaryCard = ({ refreshTrigger }) => {
       <div className="card">
         <div className="card-content">
           <div className="flex items-center justify-center py-8">
-            <div className="loading-spinner mr-2"></div>
+            <div className="loading-spinner mr-2" />
             <span>Loading summary...</span>
           </div>
         </div>
@@ -96,26 +102,28 @@ const SummaryCard = ({ refreshTrigger }) => {
         <div className="card-header">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gray-900">
-              {aiAvailable ? '🤖 AI Summary' : '📊 Task Summary'}
+              {aiAvailable ? "🤖 AI Summary" : "📊 Task Summary"}
             </h3>
             <div className="flex space-x-2">
               <button
-                onClick={() => setPeriod('daily')}
+                onClick={() => setPeriod("daily")}
                 className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                  period === 'daily'
-                    ? 'bg-primary-100 text-primary-800'
-                    : 'text-gray-600 hover:bg-gray-100'
+                  period === "daily"
+                    ? "bg-primary-100 text-primary-800"
+                    : "text-gray-600 hover:bg-gray-100"
                 }`}
+                type="button"
               >
                 Daily
               </button>
               <button
-                onClick={() => setPeriod('weekly')}
+                onClick={() => setPeriod("weekly")}
                 className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                  period === 'weekly'
-                    ? 'bg-primary-100 text-primary-800'
-                    : 'text-gray-600 hover:bg-gray-100'
+                  period === "weekly"
+                    ? "bg-primary-100 text-primary-800"
+                    : "text-gray-600 hover:bg-gray-100"
                 }`}
+                type="button"
               >
                 Weekly
               </button>
@@ -128,12 +136,9 @@ const SummaryCard = ({ refreshTrigger }) => {
             <div className="text-danger-600 text-sm">{error}</div>
           ) : aiAvailable && summary ? (
             <div>
-              <p className="text-gray-700 mb-4">{summary.summary}</p>
-              {summary.generated_at && (
-                <div className="text-xs text-gray-500">
-                  Generated {new Date(summary.generated_at).toLocaleString()}
-                </div>
-              )}
+              <p className="text-gray-700 mb-4">
+                {summary.summary || "No summary text available."}
+              </p>
             </div>
           ) : !aiAvailable ? (
             <div className="text-center py-4">
@@ -142,7 +147,7 @@ const SummaryCard = ({ refreshTrigger }) => {
                 AI summaries are not available
               </p>
               <p className="text-xs text-gray-500">
-                Configure your OpenAI API key to enable AI features
+                Configure your OpenAI API key to enable AI features.
               </p>
             </div>
           ) : (
@@ -163,7 +168,9 @@ const SummaryCard = ({ refreshTrigger }) => {
                 </div>
                 <div className="ml-3">
                   <p className="text-sm font-medium text-gray-600">Total Tasks</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.total_tasks}</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {stats.total_tasks ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -178,7 +185,9 @@ const SummaryCard = ({ refreshTrigger }) => {
                 </div>
                 <div className="ml-3">
                   <p className="text-sm font-medium text-gray-600">Completed</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.completed_tasks}</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {stats.completed_tasks ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -193,7 +202,9 @@ const SummaryCard = ({ refreshTrigger }) => {
                 </div>
                 <div className="ml-3">
                   <p className="text-sm font-medium text-gray-600">Pending</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.pending_tasks}</p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {stats.pending_tasks ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -207,8 +218,12 @@ const SummaryCard = ({ refreshTrigger }) => {
                   <span className="text-purple-600 text-xl">📈</span>
                 </div>
                 <div className="ml-3">
-                  <p className="text-sm font-medium text-gray-600">Completion Rate</p>
-                  <p className="text-2xl font-bold text-gray-900">{stats.completion_rate}%</p>
+                  <p className="text-sm font-medium text-gray-600">
+                    Completion Rate
+                  </p>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {stats.completion_rate ?? getCompletionPercentage()}%
+                  </p>
                 </div>
               </div>
             </div>
@@ -217,29 +232,37 @@ const SummaryCard = ({ refreshTrigger }) => {
       )}
 
       {/* Progress Bar */}
-      {stats && stats.total_tasks > 0 && (
+      {stats && (stats.total_tasks ?? 0) > 0 && (
         <div className="card">
           <div className="card-content">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-gray-700">Overall Progress</span>
-              <span className="text-sm text-gray-600">{getCompletionPercentage()}%</span>
+              <span className="text-sm font-medium text-gray-700">
+                Overall Progress
+              </span>
+              <span className="text-sm text-gray-600">
+                {getCompletionPercentage()}%
+              </span>
             </div>
             <div className="w-full bg-gray-200 rounded-full h-2">
               <div
-                className={`h-2 rounded-full transition-all duration-300 ${getProgressColor(getCompletionPercentage())}`}
+                className={`h-2 rounded-full transition-all duration-300 ${getProgressColor(
+                  getCompletionPercentage()
+                )}`}
                 style={{ width: `${getCompletionPercentage()}%` }}
-              ></div>
+              />
             </div>
             <div className="flex justify-between text-xs text-gray-500 mt-1">
-              <span>{stats.completed_tasks} completed</span>
-              <span>{stats.total_tasks - stats.completed_tasks} remaining</span>
+              <span>{stats.completed_tasks ?? 0} completed</span>
+              <span>
+                {(stats.total_tasks ?? 0) - (stats.completed_tasks ?? 0)} remaining
+              </span>
             </div>
           </div>
         </div>
       )}
 
-      {/* Urgent Tasks Alert */}
-      {stats && (stats.urgent_tasks > 0 || stats.overdue_tasks > 0) && (
+      {/* Urgent / Overdue */}
+      {stats && ((stats.urgent_tasks ?? 0) > 0 || (stats.overdue_tasks ?? 0) > 0) && (
         <div className="card border-warning-200 bg-warning-50">
           <div className="card-content">
             <div className="flex items-center">
@@ -247,9 +270,17 @@ const SummaryCard = ({ refreshTrigger }) => {
               <div>
                 <h4 className="font-medium text-warning-800">Attention Required</h4>
                 <p className="text-sm text-warning-700">
-                  {stats.urgent_tasks > 0 && `${stats.urgent_tasks} urgent task${stats.urgent_tasks > 1 ? 's' : ''}`}
-                  {stats.urgent_tasks > 0 && stats.overdue_tasks > 0 && ' • '}
-                  {stats.overdue_tasks > 0 && `${stats.overdue_tasks} overdue task${stats.overdue_tasks > 1 ? 's' : ''}`}
+                  {(stats.urgent_tasks ?? 0) > 0 &&
+                    `${stats.urgent_tasks} urgent task${
+                      stats.urgent_tasks > 1 ? "s" : ""
+                    }`}
+                  {(stats.urgent_tasks ?? 0) > 0 &&
+                    (stats.overdue_tasks ?? 0) > 0 &&
+                    " • "}
+                  {(stats.overdue_tasks ?? 0) > 0 &&
+                    `${stats.overdue_tasks} overdue task${
+                      stats.overdue_tasks > 1 ? "s" : ""
+                    }`}
                 </p>
               </div>
             </div>

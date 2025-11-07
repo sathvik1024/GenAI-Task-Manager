@@ -122,7 +122,8 @@ export const authAPI = {
 export const taskAPI = {
   getTasks: async (filters = {}) => {
     const params = new URLSearchParams(filters);
-    const url = params.toString() ? `/tasks?${params}` : "/tasks";
+    const qs = params.toString();
+    const url = qs ? `/tasks?${qs}` : "/tasks";
     const { data } = await api.get(url);
     return data;
   },
@@ -149,11 +150,6 @@ export const taskAPI = {
 
   getStats: async () => {
     const { data } = await api.get("/tasks/stats");
-    return data;
-  },
-
-  sendTestEmail: async () => {
-    const { data } = await api.post("/tasks/test-email");
     return data;
   },
 };

@@ -7,6 +7,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { taskAPI, aiAPI, handleApiError } from "../utils/api";
 
+
 /* ------------------------------------------------------------------
    Date helpers for <input type="datetime-local">
 ------------------------------------------------------------------- */
@@ -101,6 +102,17 @@ const parseServerDeadline = (value) => {
   }
 };
 
+/* -------------------------
+   English-only title utils
+--------------------------*/
+const isAscii = (s) => {
+  try {
+    return s === "" || /^[\x00-\x7F]*$/.test(String(s));
+  } catch {
+    return true;
+  }
+};
+
 const TaskForm = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -164,7 +176,7 @@ const TaskForm = () => {
       setSuccess("");
 
       const { parsed_task: parsed } = await aiAPI.parseTask(aiInput);
-      console.log("AI parsed ->", parsed); // helpful log
+      console.log("AI parsed ->", parsed);
 
       setFormData({
         title: parsed?.title || "",
@@ -248,6 +260,21 @@ const TaskForm = () => {
     }
   };
 
+  // Ensure English-only title before submit (for manual form use-case)
+  const ensureEnglishTitle = async (title, description) => {
+    if (isAscii(title)) return title;
+    try {
+      const { parsed_task } = await aiAPI.parseTask(
+        `${title}${description ? `. ${description}` : ""}`
+      );
+      const t = parsed_task?.title || title;
+      return isAscii(t) ? t : t.normalize("NFKD").replace(/[^\x00-\x7F]/g, "");
+    } catch {
+      // Fallback: strip non-ascii so we never save non-English title
+      return title.normalize("NFKD").replace(/[^\x00-\x7F]/g, "");
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
@@ -260,9 +287,16 @@ const TaskForm = () => {
 
     try {
       setLoading(true);
+
+      // Force English title for manual entries
+      const englishTitle = await ensureEnglishTitle(
+        formData.title.trim(),
+        formData.description.trim()
+      );
+
       const payload = {
         ...formData,
-        title: formData.title.trim(),
+        title: englishTitle,
         description: formData.description.trim(),
         category: formData.category.trim(),
         deadline: formData.deadline || null,
@@ -422,10 +456,15 @@ const TaskForm = () => {
                     name="title"
                     required
                     className="input"
-                    placeholder="Enter task title"
+                    placeholder="Enter task title (English only)"
                     value={formData.title}
                     onChange={handleInputChange}
                   />
+                  {!isAscii(formData.title) && (
+                    <p className="text-xs text-warning-700 mt-1">
+                      Non-English detected — we'll translate the title before saving.
+                    </p>
+                  )}
                 </div>
 
                 <div>
