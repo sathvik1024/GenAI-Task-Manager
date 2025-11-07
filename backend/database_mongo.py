@@ -4,33 +4,58 @@ Handles MongoDB connection, collections, and database operations.
 """
 
 import os
+import sys
 from datetime import datetime
 from flask_pymongo import PyMongo
 from pymongo import ReturnDocument
+from urllib.parse import quote_plus
 
 # Global PyMongo instance
 mongo: PyMongo | None = None
 
 
+def _warn_and_exit(msg: str):
+    print(f"[Mongo][FATAL] {msg}")
+    # Exit so the app doesn't continue in broken state
+    sys.exit(1)
+
+
+def _sanitize_uri(uri: str) -> str:
+    """
+    Basic checks and helpful messages. Does not modify your password.
+    If password placeholder is present, warn.
+    """
+    if not uri:
+        _warn_and_exit("MONGODB_URI not set. Please set the MONGODB_URI environment variable.")
+    # If user left literal <password> placeholder
+    if "<password>" in uri or "%3Cpassword%3E" in uri:
+        _warn_and_exit("MONGODB_URI contains '<password>' placeholder. Replace with your real (URL-encoded) password.")
+    return uri
+
+
 def init_mongo(app):
-    """Initialize MongoDB with Flask app."""
+    """Initialize MongoDB with Flask app. Raises/Exits on fatal failure."""
     global mongo
 
     # MongoDB configuration
-    mongo_uri = os.getenv("MONGODB_URI", "mongodb://localhost:27017/genai_task_manager")
+    env_uri = os.getenv("MONGODB_URI", "").strip()
+    mongo_uri = _sanitize_uri(env_uri) if env_uri else _sanitize_uri(os.getenv("MONGODB_URI", ""))
+
+    # Helpful hint: if user provided user:pass separate, you could build the URI here
+    # but we expect the full URI in env.
     app.config["MONGO_URI"] = mongo_uri
 
-    print(f"[Mongo] Connecting to: {mongo_uri}")
+    print(f"[Mongo] Connecting to: {mongo_uri[:120]}{'...' if len(mongo_uri)>120 else ''}")
 
     try:
-        # Optional: pool size for cloud/Atlas
+        # Optional: adjust pool size for cloud/Atlas
         if "localhost" not in mongo_uri and "127.0.0.1" not in mongo_uri:
             app.config["MONGO_CONNECT"] = False
             app.config["MONGO_MAXPOOLSIZE"] = int(os.getenv("MONGO_MAXPOOLSIZE", "50"))
 
         mongo = PyMongo(app)
 
-        # Test the connection
+        # Test the connection (this will raise if connection fails)
         mongo.cx.admin.command("ping")
         print("[Mongo] Connection successful!")
 
@@ -38,9 +63,15 @@ def init_mongo(app):
         return mongo
 
     except Exception as e:
+        # Detailed error so user can fix quickly
         print(f"[Mongo] Connection failed: {e}")
-        print("Make sure MongoDB is running (check MongoDB/Compass) and your URI is correct.")
-        return None
+        print("Make sure:")
+        print(" - MONGODB_URI is correct and includes the DB name (e.g. ...mongodb.net/your_db_name?retryWrites=true&w=majority)")
+        print(" - Your Atlas user credentials are valid and password is URL-encoded if it contains special characters")
+        print(" - Network access in Atlas allows your IP (or 0.0.0.0/0 for testing)")
+        # Fail fast: exit so app doesn't continue with mongo=None
+        _warn_and_exit("MongoDB initialization failed. Exiting.")
+        return None  # unreachable but explicit
 
 
 def create_indexes():
@@ -73,7 +104,6 @@ def create_indexes():
         except Exception:
             pass
 
-        # ✅ Do NOT create an index on _id (MongoDB already enforces it).
         # Ensure the 'counters' collection exists (used for auto-increment IDs).
         if "counters" not in mongo.db.list_collection_names():
             mongo.db.create_collection("counters")
@@ -173,7 +203,7 @@ def get_next_sequence_value(sequence_name: str) -> int:
     col = MongoDBManager.get_collection("counters")
     doc = col.find_one_and_update(
         {"_id": sequence_name},
-        {"$inc": {"sequence_value": 1}},   # upsert will create sequence_value=1 if missing
+        {"$inc": {"sequence_value": 1}},
         upsert=True,
         return_document=ReturnDocument.AFTER,
     )
